@@ -1,0 +1,16 @@
+/qga9
+/qga9-test
+/qga9-info-test
+/qga9-files-test
+/qga9-clock-test
+/qga9-native-clock-test
+/qga9-process-test
+/qga9-native-process-test
+/qga9-exec-fixture
+/*.6
+/*.8
+/*.5
+/*.7
+/build/
+__pycache__/
+*.pyc

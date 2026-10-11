@@ -1,0 +1,40 @@
+#!/bin/rc
+# SPDX-License-Identifier: MIT
+# Real daemon dispatch over a duplex stream, never the installed UART.
+rfork n
+qga9_test_binary=./qga9
+if(~ $#* 1) qga9_test_binary=$1
+if(! ~ $#* 0 1 || ! test -x $qga9_test_binary) exit usage
+if(! bind '#|' /mnt) exit pipe
+qga9_test_result=''
+<>/mnt/data1 {
+	$qga9_test_binary -t stream -d /mnt/data </dev/null >/dev/null &
+	qga9_test_pid=$apid
+	echo '{"execute":"guest-exec","arguments":{"path":"/bin/sleep","arg":["2"],"capture-output":true}}' >[1=0]
+	qga9_test_reply=`{read | tr -d '\015'}
+	qga9_test_child=`{echo $qga9_test_reply | awk -F '[:,}]' '{print $3}'}
+	if(! echo $qga9_test_child | grep '^[1-9][0-9]*$' >/dev/null){
+		echo 'invalid exec PID reply:' $qga9_test_reply >[1=2]
+		qga9_test_result=spawn
+	}
+	if(~ $qga9_test_result ''){
+		echo '{"execute":"guest-exec-status","arguments":{"pid":'^$qga9_test_child^'}}' >[1=0]
+		qga9_test_reply=`{read | tr -d '\015'}
+		if(! ~ $qga9_test_reply '{"return":{"exited":false}}') qga9_test_result=running
+		echo '{"execute":"guest-ping","id":"while-running"}' >[1=0]
+		qga9_test_reply=`{read | tr -d '\015'}
+		if(! ~ $qga9_test_reply '{"return":{},"id":"while-running"}') qga9_test_result=responsive
+		sleep 3
+		echo '{"execute":"guest-exec-status","arguments":{"pid":'^$qga9_test_child^'}}' >[1=0]
+		qga9_test_reply=`{read | tr -d '\015'}
+		if(! echo $qga9_test_reply | grep '"exited":true,"exitcode":0' >/dev/null) qga9_test_result=exit
+		echo '{"execute":"guest-exec-status","arguments":{"pid":'^$qga9_test_child^'}}' >[1=0]
+		qga9_test_reply=`{read | tr -d '\015'}
+		if(! echo $qga9_test_reply | grep 'Unknown or reaped exec PID' >/dev/null) qga9_test_result=reap
+	}
+	echo exit >/proc/$qga9_test_pid/note
+	wait $qga9_test_pid
+}
+if(! ~ $qga9_test_result '') exit $qga9_test_result
+echo 'native exec stream: running status, responsive ping, exit and one-shot reaping passed'
+exit ''

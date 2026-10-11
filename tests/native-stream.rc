@@ -1,0 +1,39 @@
+#!/bin/rc
+# SPDX-License-Identifier: MIT
+# Native duplex-stream smoke test; no UART, filesystem mutation or power API.
+rfork n
+qga9_test_binary=./qga9
+if(~ $#* 1)
+	qga9_test_binary=$1
+if(! ~ $#* 0 1 || ! test -x $qga9_test_binary){
+	echo 'usage: rc tests/native-stream.rc [qga9-binary]' >[1=2]
+	exit usage
+}
+# Replace /mnt only in this test's private namespace; no directories are removed.
+if(! bind '#|' /mnt)
+	exit pipe
+qga9_test_result=''
+<>/mnt/data1 {
+	$qga9_test_binary -t stream -d /mnt/data </dev/null >/dev/null &
+	qga9_test_pid=$apid
+	echo '{"execute":"guest-ping"}' >[1=0]
+	# QGA frames end in CRLF; read removes LF, not CR.
+	qga9_test_reply=`{read | tr -d '\015'}
+	if(! ~ $qga9_test_reply '{"return":{}}'){
+		echo 'unexpected stream reply:' $qga9_test_reply >[1=2]
+		qga9_test_result=reply
+	}
+	echo '{"execute":"guest-info"}' >[1=0]
+	qga9_test_reply=`{read | tr -d '\015'}
+	if(! echo $qga9_test_reply | grep 'guest-set-time' >/dev/null){
+		echo 'management stream did not advertise clock control' >[1=2]
+		qga9_test_result=metadata
+	}
+	# This PID belongs to the smoke-test child, not the installed agent.
+	echo exit >/proc/$qga9_test_pid/note
+	wait $qga9_test_pid
+}
+if(! ~ $qga9_test_result '')
+	exit $qga9_test_result
+echo 'native duplex stream: ping and management metadata passed'
+exit ''

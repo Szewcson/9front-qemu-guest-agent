@@ -1,0 +1,40 @@
+#!/bin/rc
+# SPDX-License-Identifier: MIT
+# Creates one synthetic fixture in the current guest checkout; never overwrites.
+rfork e
+qga9_test_binary=./qga9
+if(~ $#* 1)
+	qga9_test_binary=$1
+if(! ~ $#* 0 1 || ! test -x $qga9_test_binary)
+	exit usage
+qga9_test_directory=`{pwd}
+qga9_test_path=$qga9_test_directory^'/qga9-native-fixture-'$pid
+if(! ~ $#qga9_test_path 1 || test -e $qga9_test_path)
+	exit exists
+qga9_test_output=`{
+	{
+		echo '{"execute":"guest-file-open","arguments":{"path":"'^$qga9_test_path^'","mode":"w+"}}'
+		echo '{"execute":"guest-file-write","arguments":{"handle":1,"buf-b64":"AP9h"}}'
+		echo '{"execute":"guest-file-seek","arguments":{"handle":1,"offset":0,"whence":"set"}}'
+		echo '{"execute":"guest-file-read","arguments":{"handle":1}}'
+		echo '{"execute":"guest-file-flush","arguments":{"handle":1}}'
+		echo '{"execute":"guest-file-close","arguments":{"handle":1}}'
+		echo '{"execute":"guest-file-open","arguments":{"path":"'^$qga9_test_path^'"}}'
+		echo '{"execute":"guest-file-read","arguments":{"handle":2,"count":3}}'
+		echo '{"execute":"guest-file-close","arguments":{"handle":2}}'
+	} | $qga9_test_binary -s | tr -d '\015'
+}
+if(! ~ $#qga9_test_output 9)
+	exit replies
+if(! ~ $qga9_test_output(1) '{"return":1}' ||
+   ! ~ $qga9_test_output(2) '{"return":{"count":3,"eof":false}}' ||
+   ! ~ $qga9_test_output(3) '{"return":{"position":0,"eof":false}}' ||
+   ! ~ $qga9_test_output(4) '{"return":{"count":3,"buf-b64":"AP9h","eof":true}}' ||
+   ! ~ $qga9_test_output(5) '{"return":{}}' ||
+   ! ~ $qga9_test_output(6) '{"return":{}}' ||
+   ! ~ $qga9_test_output(7) '{"return":2}' ||
+   ! ~ $qga9_test_output(8) '{"return":{"count":3,"buf-b64":"AP9h","eof":false}}' ||
+   ! ~ $qga9_test_output(9) '{"return":{}}')
+	exit content
+echo 'native file API: all six operations passed; fixture retained at' $qga9_test_path
+exit ''

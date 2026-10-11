@@ -1,0 +1,8 @@
+# Trusted rc configuration: select a VERIFIED dedicated QGA UART.
+qga9_enabled=yes
+# Example only: do not use eia0 without checking the host/guest mapping.
+qga9_device='#t/eia0'
+# stream skips UART controls; it does NOT install/provide a virtio driver.
+qga9_transport=uart
+# Opt in with yes only when native fshalt/power behaviour is appropriate.
+qga9_shutdown=no

@@ -1,0 +1,51 @@
+#!/bin/rc
+# SPDX-License-Identifier: MIT
+# Run once from a machine-specific boot hook; configuration is trusted rc code.
+rfork e
+if(! ~ $#* 0 1){
+	echo 'usage: qga9-start [configuration-file]' >[1=2]
+	exit usage
+}
+qga9_config=/cfg/$sysname/qga9
+if(~ $#* 1)
+	qga9_config=$1
+if(! test -r $qga9_config){
+	echo 'qga9: missing configuration:' $qga9_config >[1=2]
+	exit missing
+}
+qga9_enabled=no
+qga9_device=()
+qga9_shutdown=no
+qga9_transport=uart
+. $qga9_config
+if(! ~ $#qga9_enabled 1 || ! ~ $qga9_enabled yes no){
+	echo 'qga9: qga9_enabled must be yes or no' >[1=2]
+	exit configuration
+}
+if(~ $qga9_enabled no)
+	exit ''
+if(! ~ $#qga9_device 1 || ! ~ $#qga9_shutdown 1 || ! ~ $qga9_shutdown yes no){
+	echo 'qga9: one verified device and qga9_shutdown=yes/no required' >[1=2]
+	exit configuration
+}
+if(! ~ $#qga9_transport 1 || ! ~ $qga9_transport uart stream){
+	echo 'qga9: qga9_transport must be uart or stream' >[1=2]
+	exit configuration
+}
+if(! test -x /bin/aux/qga9){
+	echo 'qga9: binary is not installed' >[1=2]
+	exit missing
+}
+qga9_permissions=($qga9_device)
+if(~ $qga9_transport uart)
+	qga9_permissions=($qga9_device $qga9_device^ctl)
+if(! chmod 600 $qga9_permissions){
+	echo 'qga9: cannot restrict the dedicated channel' >[1=2]
+	exit permissions
+}
+qga9_flags=()
+if(~ $qga9_shutdown yes)
+	qga9_flags=(-S)
+# -D forks after channel setup, using private groups and RFNOWAIT (no rc wait job).
+rfork ens
+exec /bin/aux/qga9 -D -t $qga9_transport -d $qga9_device $qga9_flags </dev/null >/dev/null >[2]'#c/cons'

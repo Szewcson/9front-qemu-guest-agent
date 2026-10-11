@@ -1,0 +1,2 @@
+# Add once to /cfg/$sysname/cpustart; preserve any existing hook contents.
+/rc/bin/qga9-start /cfg/$sysname/qga9
