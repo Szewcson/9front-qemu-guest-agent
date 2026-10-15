@@ -24,6 +24,8 @@ Unknown top-level or implemented-command argument members are rejected.
 | `guest-get-vcpus` | active native CPUs; no arguments | Native daemon | yes |
 | `guest-get-timezone` | native zone and UTC offset in seconds; no arguments | Native daemon | yes |
 | `guest-network-get-route` | native IPv4/IPv6 routes; no arguments | Native daemon | yes |
+| `guest-get-disks` | actual nonempty `#S` data/partition nodes; no arguments | Native daemon, including stdio | yes |
+| `guest-get-load` | estimated numeric `load1m`, `load5m`, `load15m`; no arguments | Native daemon, including stdio, if sampler starts | yes |
 | `guest-file-open` | required absolute `path`, optional `mode` (default `r`); returns opaque int64 handle | Native daemon, including stdio | yes |
 | `guest-file-close` | required `handle`; returns `{}` | Native daemon | yes |
 | `guest-file-read` | required `handle`, optional `count`; returns `count`, `buf-b64`, `eof` | Native daemon | yes |
@@ -35,14 +37,34 @@ Unknown top-level or implemented-command argument members are rejected.
 | `guest-exec-status` | required owned `pid`; running or final result; consumes final metadata | Native management channel, not stdio | yes |
 | `guest-shutdown` | optional `mode`: powerdown (default), reboot; halt unsupported | Explicit `-S` only | **no** |
 
-`guest-info` lists twenty commands on native management channels, twenty-one with
-`-S`. Native stdio lists seventeen (no shutdown or clock setter). The minimal
+With the load sampler running, `guest-info` lists twenty-two commands on native
+management channels, twenty-three with `-S`. Native stdio lists nineteen
+(no shutdown, clock setter or exec/status). If sampler startup fails, each count
+is one lower and load is not advertised. The minimal
 Linux stream harness registers no native callbacks and lists only four. All
 listed entries have `enabled: true`; only shutdown has `success-response: false`.
-Excluded commands are not advertised. The current version is `qga9-0.4.0-dev`;
-versions through 0.3 were accepted in operator-supplied Proxmox output. The previous
+Excluded commands are not advertised. The current source version is `qga9-0.6.0-dev`;
+versions through 0.4 were accepted in operator-supplied Proxmox output, including
+the five exec smoke tests. The previous
 file/clock batch passed corrected-script host binary round-trip and supplied-time
 clock tests; omitted-time and failure injection remain separate checks.
+
+## Load estimates
+
+`guest-get-load` has no arguments and returns three JSON numbers. A continuous
+private native sampler counts Ready/Running processes, excluding itself, and
+updates 60/300/900-second exponential estimates at one-second intervals.
+These are estimated runnable counts, not percentages or the kernel's roughly
+one-second-decayed `#c/sysstat` value. The estimator starts at zero when the
+sampler starts; it cannot reconstruct boot history and needs time to settle.
+
+Process snapshots are non-atomic. Fixed-point arithmetic uses millionths and
+serializes six decimal places; rounding has a small residual error during decay.
+The elapsed source is native process milliseconds modulo 2^32, not wall time.
+Invalid metadata, excessive process counts or gaps longer than three seconds
+reset the model and fail that query rather than inventing missing samples.
+Later valid samples restart estimation. The model/protocol have host tests;
+the actual native sampler and lifecycle remain unverified.
 
 ## JSON and framing
 
@@ -68,6 +90,9 @@ clock tests; omitted-time and failure injection remain separate checks.
 - Writes are retried only while a callback consumes positive, in-range bytes.
   Zero/error/impossible byte counts stop the instance. Output overflow sends
   nothing rather than a truncated response. Output is capped at 65536 bytes.
+  Native queries now reserve escaped transaction-ID/framing space before
+  serialization; oversized query results return a bounded error and leave the
+  stream usable instead of overflowing when the ID is appended.
 
 Sync IDs must be JSON integer literals in `[-9223372036854775808,
 9223372036854775807]`. Floats, exponent notation and unsigned values above the
@@ -147,7 +172,16 @@ or trust guarantee; a guest can forge its own answers.
 - Native open validates the acquired descriptor as a mounted filesystem file,
   not a directory/auth file or direct kernel device. New files are created 0600
   with exclusive create; existing files are truncated through the validated
-  descriptor. Access follows the agent's native identity and namespace.
+  descriptor. Missing files require a readable mounted-M directory parent
+  before create, and the backend takes a private namespace to prevent peer
+  rebinding. `/env`, `/srv` and non-M aliases are rejected before create.
+  A private helper anchors its cwd, rejects final-parent unions using native
+  MCREATE self-bind validation, rechecks the mounted directory, and creates the
+  relative leaf exclusively. A leased, owner-only srv board transfers the
+  descriptor back without sharing the helper's descriptor table. Native
+  namespace regression/deployment is pending.
+  Access follows the agent's native identity and namespace; errors are not a
+  general no-side-effect or rollback guarantee.
 - Read count defaults to 4096; read/write count is limited to 0..4096 bytes.
   This is deliberately smaller than upstream QGA's read maximum. Use repeated
   chunks. Write buffers must decode to at most 4096 bytes, with canonical padded

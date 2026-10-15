@@ -1,13 +1,31 @@
-# Native 9front build; no pac9 or foreign runtime required.
+# Native 9front build.
 </$objtype/mkfile
 
 BIN=/$objtype/bin/aux
-HFILES=src/qga.h src/json.h src/native.h src/guestinfo.h src/files.h src/clock.h src/base64.h src/process.h
-OFILES=main.$O json.$O qga.$O native.$O guestinfo.$O files.$O native-files.$O clock.$O native-clock.$O base64.$O process.$O native-process.$O
+HFILES=src/qga.h src/json.h src/native.h src/guestinfo.h src/files.h src/clock.h src/base64.h src/process.h src/storage.h src/native-create.h src/load.h
+OFILES=main.$O json.$O qga.$O native.$O guestinfo.$O files.$O native-files.$O native-create.$O clock.$O native-clock.$O base64.$O process.$O native-process.$O native-fd.$O storage.$O native-storage.$O load.$O native-load.$O
 
 all:V: qga9
 
 qga9: $OFILES
+	$LD -o $target $prereq
+
+load.$O: src/load.c $HFILES
+	$CC $CFLAGS -Isrc -o $target src/load.c
+
+native-load.$O: src/native-load.c $HFILES
+	$CC $CFLAGS -Isrc -o $target src/native-load.c
+
+load-test.$O: tests/load-test.c $HFILES
+	$CC $CFLAGS -Isrc -o $target tests/load-test.c
+
+qga9-load-test: load-test.$O load.$O json.$O qga.$O
+	$LD -o $target $prereq
+
+native-load-test.$O: tests/native-load-test.c $HFILES
+	$CC $CFLAGS -Isrc -o $target tests/native-load-test.c
+
+qga9-native-load-test: native-load-test.$O native-load.$O native-fd.$O load.$O json.$O
 	$LD -o $target $prereq
 
 main.$O: src/main.c $HFILES
@@ -37,6 +55,9 @@ files.$O: src/files.c $HFILES
 native-files.$O: src/native-files.c $HFILES
 	$CC $CFLAGS -Isrc -o $target src/native-files.c
 
+native-create.$O: src/native-create.c $HFILES
+	$CC $CFLAGS -Isrc -o $target src/native-create.c
+
 files-test.$O: tests/files-test.c $HFILES
 	$CC $CFLAGS -Isrc -o $target tests/files-test.c
 
@@ -55,6 +76,12 @@ native-clock-test.$O: tests/native-clock-test.c $HFILES
 qga9-test: core-test.$O json.$O qga.$O
 	$LD -o $target $prereq
 
+json-codec-test.$O: tests/json-codec-test.c $HFILES
+	$CC $CFLAGS -Isrc -o $target tests/json-codec-test.c
+
+qga9-json-codec-test: json-codec-test.$O json.$O
+	$LD -o $target $prereq
+
 qga9-info-test: info-test.$O json.$O guestinfo.$O
 	$LD -o $target $prereq
 
@@ -66,6 +93,9 @@ process.$O: src/process.c $HFILES
 
 native-process.$O: src/native-process.c $HFILES
 	$CC $CFLAGS -Isrc -o $target src/native-process.c
+
+native-fd.$O: src/native-fd.c $HFILES
+	$CC $CFLAGS -Isrc -o $target src/native-fd.c
 
 process-test.$O: tests/process-test.c $HFILES
 	$CC $CFLAGS -Isrc -o $target tests/process-test.c
@@ -82,10 +112,16 @@ qga9-exec-fixture: exec-fixture.$O
 qga9-process-test: process-test.$O process.$O base64.$O json.$O qga.$O
 	$LD -o $target $prereq
 
-qga9-native-process-test: native-process-test.$O native-process.$O process.$O base64.$O json.$O
+qga9-native-process-test: native-process-test.$O native-process.$O native-fd.$O process.$O base64.$O json.$O
 	$LD -o $target $prereq
 
 qga9-files-test: files-test.$O files.$O base64.$O json.$O qga.$O
+	$LD -o $target $prereq
+
+native-files-guard-test.$O: tests/native-files-guard-test.c src/native-files.c $HFILES
+	$CC $CFLAGS -Isrc -o $target tests/native-files-guard-test.c
+
+qga9-native-files-guard-test: native-files-guard-test.$O native-create.$O native-fd.$O files.$O base64.$O json.$O qga.$O
 	$LD -o $target $prereq
 
 qga9-clock-test: clock-test.$O clock.$O json.$O qga.$O
@@ -94,12 +130,52 @@ qga9-clock-test: clock-test.$O clock.$O json.$O qga.$O
 qga9-native-clock-test: native-clock-test.$O native-clock.$O clock.$O
 	$LD -o $target $prereq
 
-test:V: qga9-test qga9-info-test qga9-files-test qga9-clock-test qga9-process-test
+storage.$O: src/storage.c $HFILES
+	$CC $CFLAGS -Isrc -o $target src/storage.c
+
+native-storage.$O: src/native-storage.c $HFILES
+	$CC $CFLAGS -Isrc -o $target src/native-storage.c
+
+storage-test.$O: tests/storage-test.c $HFILES
+	$CC $CFLAGS -Isrc -o $target tests/storage-test.c
+
+qga9-storage-test: storage-test.$O storage.$O json.$O qga.$O
+	$LD -o $target $prereq
+
+native-storage-test.$O: tests/native-storage-test.c $HFILES
+	$CC $CFLAGS -Isrc -o $target tests/native-storage-test.c
+
+qga9-native-storage-test: native-storage-test.$O native-storage.$O storage.$O json.$O
+	$LD -o $target $prereq
+
+native-fd-test.$O: tests/native-fd-test.c $HFILES
+	$CC $CFLAGS -Isrc -o $target tests/native-fd-test.c
+
+qga9-native-fd-test: native-fd-test.$O native-fd.$O
+	$LD -o $target $prereq
+
+base64-test.$O: tests/base64-test.c $HFILES
+	$CC $CFLAGS -Isrc -o $target tests/base64-test.c
+
+qga9-base64-test: base64-test.$O base64.$O json.$O
+	$LD -o $target $prereq
+
+native-json-eval.$O: tests/native-json-eval.c $HFILES
+	$CC $CFLAGS -Isrc -o $target tests/native-json-eval.c
+
+qga9-native-json-eval: native-json-eval.$O json.$O
+	$LD -o $target $prereq
+
+test:V: qga9-test qga9-info-test qga9-files-test qga9-clock-test qga9-process-test qga9-storage-test qga9-base64-test qga9-json-codec-test qga9-load-test
+	./qga9-load-test
+	./qga9-json-codec-test
 	./qga9-test
 	./qga9-info-test
 	./qga9-files-test
 	./qga9-clock-test
 	./qga9-process-test
+	./qga9-storage-test
+	./qga9-base64-test
 
 install:V: qga9
 	if(test -e $BIN/qga9){
@@ -111,5 +187,25 @@ install:V: qga9
 uninstall:V:
 	rm -f $BIN/qga9
 
+# Explicit auxiliary installation; default build/test never writes system paths.
+install-man:V:
+	if(test -e /sys/man/8/qga9 || test -e /sys/man/8/qga9-start){
+		echo 'qga9 manual already exists; preserve it before an explicit update' >[1=2]
+		exit exists
+	}
+	cp man/8/qga9 man/8/qga9-start /sys/man/8/
+
+install-service:V:
+	if(test -e /rc/bin/qga9-start){
+		echo 'qga9-start already exists; preserve it before an explicit update' >[1=2]
+		exit exists
+	}
+	cp scripts/start.rc /rc/bin/qga9-start
+	chmod 755 /rc/bin/qga9-start
+
 clean:V:
-	rm -f $OFILES core-test.$O info-test.$O files-test.$O clock-test.$O native-clock-test.$O process-test.$O native-process-test.$O exec-fixture.$O qga9 qga9-test qga9-info-test qga9-files-test qga9-clock-test qga9-native-clock-test qga9-process-test qga9-native-process-test qga9-exec-fixture
+	rm -f native-load-test.$O qga9-native-load-test
+	rm -f load-test.$O qga9-load-test
+	rm -f json-codec-test.$O qga9-json-codec-test
+	rm -f native-files-guard-test.$O qga9-native-files-guard-test
+	rm -f $OFILES core-test.$O info-test.$O files-test.$O clock-test.$O native-clock-test.$O process-test.$O native-process-test.$O exec-fixture.$O storage-test.$O native-storage-test.$O native-fd-test.$O base64-test.$O native-json-eval.$O qga9 qga9-test qga9-info-test qga9-files-test qga9-clock-test qga9-native-clock-test qga9-native-process-test qga9-process-test qga9-exec-fixture qga9-storage-test qga9-native-storage-test qga9-native-fd-test qga9-base64-test qga9-native-json-eval

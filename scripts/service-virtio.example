@@ -1,0 +1,6 @@
+# Trusted rc configuration; enable only after verifying the real #Y endpoint.
+# Requires test kernel with qgavirtio=1 and PVE's real virtio-serial QGA channel.
+qga9_enabled=yes
+qga9_transport=stream
+qga9_device='#Y0/data'
+qga9_shutdown=yes

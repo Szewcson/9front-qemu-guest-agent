@@ -1,9 +1,16 @@
 # Native 9front installation
 
-Native amd64 build, core/information/file/clock tests, installation and boot-helper
-invocation have been tested. Host integration through the CPU/timezone/route
-batch and corrected-script file/supplied-time clock tests was confirmed by
-operator output. Remaining live checks are listed in STATUS.
+Prior native amd64 builds, userspace tests, installation and service startup
+passed. Native build/VM checks have not been rerun after the repository split.
+See [STATUS](STATUS.md) for native, host-fixture and operator PVE evidence.
+
+## Transport choice
+
+This repository builds only the userspace agent. UART works on stock 9front;
+real virtio requires the separately built/installed
+[driver repository](https://github.com/Szewcson/9front-virtio-serial/blob/main/README.md). The last verified
+VM cold-boots that kernel and runs QGA on #Y0/data automatically.
+Keep stock-kernel/ISA recovery available when enabling virtio.
 
 ## Discover the QGA UART
 
@@ -31,8 +38,7 @@ Do not write test data or change control settings on a serial console port.
 ## Build, test, install
 
 Copy or clone the source into a native filesystem using your normal trusted
-workflow. No key copying, agent forwarding, package manager, or remote scripts
-are required. Within the checkout:
+workflow. Packaging is independent of the native build. Within the checkout:
 
 ```rc
 echo $objtype
@@ -45,26 +51,15 @@ The intended initial target is `amd64`. The root `mkfile` uses the architecture'
 stock compiler and linker and installs `/$objtype/bin/aux/qga9`, usually accessible
 as `/bin/aux/qga9` in a normal namespace. It will refuse to overwrite an existing
 binary. Installation requires permission to write the architecture's bin directory.
+`mk install-man` installs [qga9(8)](../man/8/qga9) and its startup alias;
+`mk install-service` installs `/rc/bin/qga9-start` mode 0755. Both refuse existing
+targets; neither creates configuration or modifies the site's boot hook.
 
 For an update, back up the installed binary and helper and verify the copies
 before stopping the exact existing daemon. Install and start once; never run
-two consumers on the channel. The first expansion deployment retained
-`qga9.pre-0.2.0-20261010` beside the installed binary and
-`qga9-start.pre-0.2.0-20261010` beside the helper, without changing boot/config
-files. Rollback requires stopping the exact current daemon, restoring both
-copies and starting the helper once. Do not restore over a running executable.
-
-The file/clock update retained `qga9.pre-0.3.0-20261011` (the previous `0.2`
-binary) beside the installed binary. Its helper was unchanged; rollback for
-that batch needs only the exact current agent stopped, that binary restored,
-and the existing helper invoked once. Installed-binary identity was compared
-with the native build before restart.
-
-The execution update retained `qga9.pre-0.4.0-20261011` (working `0.3` binary).
-Again the helper/configuration were unchanged; stop only the identified current
-agent, restore that verified copy and invoke the existing helper once to roll
-back. Reconnecting after closing the isolated deployment client confirmed that
-the `0.4` daemon remained alive independently of the login.
+two consumers on the channel. Rollback restores the byte-verified binary/helper
+copies and starts the service once with its preserved configuration.
+See [VIRTIO](VIRTIO.md) for kernel and host-channel rollback.
 
 Run the new binary in the foreground after choosing the verified QGA UART:
 
@@ -120,7 +115,10 @@ The native file backend supports read, update and truncate modes with at most
 16 handles and 4096 bytes per request. Append modes return `Unsupported`; see
 [PROTOCOL](PROTOCOL.md) for path/base64/seek/EOF details. Access uses the agent's
 identity and mounted namespace, not a separate file-sharing service. Device
-files and directories are rejected. Agent restart invalidates all file handles.
+files and directories are rejected after descriptor acquisition. Missing paths
+require a readable mounted parent before create, in a private namespace.
+Mixed-device union creation policy is trusted; this is not openat anchoring.
+See [SECURITY](SECURITY.md). Agent restart invalidates all file handles.
 `guest-file-flush` has no user-space buffer to drain and is not stable-storage
 sync or a backup freeze operation.
 
@@ -149,7 +147,24 @@ mk qga9-native-clock-test
 Omitted-time RTC synchronization and failure branches have deterministic mocks;
 the live test above uses supplied current time, not a deliberately shifted date.
 
-## Raw-stream transport preparation
+## Read-only native disk inventory
+
+`guest-get-disks` reads `#S` control/directory metadata even if `#S` is not bound
+to `/dev`. It never opens partition data or raw command files for I/O. The
+whole-data node and nonempty partitions are reported with verified dependencies;
+unverified hardware fields are omitted. See STORAGE for bounds and restrictions.
+
+```rc
+echo '{"execute":"guest-get-disks"}' | ./qga9 -s
+mk qga9-native-storage-test
+./qga9-native-storage-test
+```
+
+The native fixture is read-only and checks the real returned nodes with stat.
+It does not read or transfer their contents. This is not fsinfo, diskstats,
+filesystem quiescing, stable-storage flushing or discard support.
+
+## Raw-stream transport
 
 UART remains the default, including for older deployment configuration files.
 `-t stream -d PATH` opens an existing native duplex byte-stream device without
@@ -159,9 +174,12 @@ opening a `PATHctl` file or sending UART baud/flow-control commands. It rejects
 file in the latter case.
 
 This option does **not** create a virtio device or install a kernel driver.
-Stock 9front in the inspected VM has no virtio-console/serial driver. Keep the
-working ISA setup until the gates in [VIRTIO](VIRTIO.md) pass. A native pipe tests
-the real raw-stream entry point without touching the QGA UART:
+Stock 9front has no supplied driver for this port; build/enable it separately
+using [VIRTIO](VIRTIO.md). The test VM now has that driver, while this QGA build
+remains independent. The helper skips chmod only for exact canonical #Y data
+paths because their fixed eve-only permissions reject wstat. Generic streams
+and UARTs still require permission restriction. A native pipe tests the actual
+raw-stream entry point without touching an active QGA channel:
 
 ```rc
 rc tests/native-stream.rc
@@ -217,9 +235,17 @@ rc scripts/start.rc /cfg/$sysname/qga9
 The helper restricts the dedicated UART's data/control to 0600 and refuses to
 continue if chmod fails. It starts with `-D`, a private note group/namespace/env,
 stdin/stdout on `/dev/null`, and stderr on kernel `#c/cons`, not a Drawterm console.
-It returns after native UART setup/fork. It does not enforce exclusive ownership
-or supervise/retry the process; start it once. Foreground processes can still die
-with an interactive login; detached mode is intended for boot/manual service use.
+It returns after channel setup/fork. It does not supervise/retry the daemon.
+UART/generic-stream exclusivity must be arranged operationally; #Y enforces one
+owner. Canonical #Y paths get up to 30 one-second readiness waits before one
+launch; the helper probes existence without opening data. Missing/disabled
+drivers time out with a diagnosis. Check logs and actual agent presence.
+Foreground processes can still die with an interactive login; detached mode is
+intended for boot/manual service use.
+The serving child closes inherited descriptors except 0/1/2 and its management
+data/control handles. Shutdown children also close everything except redirected
+0/1/2 before executing the fixed command. This does not sanitize the inherited
+namespace or turn Drawterm into a filesystem/network sandbox.
 
 For boot use, make a trusted copy of the helper at a suitable local rc path,
 back up the existing local hook, and add a **single manual line**:

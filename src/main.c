@@ -27,11 +27,13 @@ main(int argc, char **argv)
 	Qga *q;
 	QgaFiles *files;
 	QgaProcesses *processes;
+	void *load;
 	Channel c;
 	ShutdownContext shutdowncontext;
 	char *device, *control, *baud, *transport, *ownedcontrol, settings[96];
 	uchar input[256];
 	int stdio, ctl, n, expected, infd, enableshutdown, detached, pid, baudgiven;
+	int keep[5];
 	char *status;
 
 	device = control = ownedcontrol = nil;
@@ -70,6 +72,7 @@ main(int argc, char **argv)
 	status = nil;
 	files = nil;
 	processes = nil;
+	load = nil;
 	if(!stdio && strcmp(transport, "uart") == 0){
 		if(control == nil){
 			ownedcontrol = smprint("%sctl", device);
@@ -103,8 +106,20 @@ main(int argc, char **argv)
 		}
 		if(pid > 0)
 			goto out;
+		keep[0] = 0;
+		keep[1] = 1;
+		keep[2] = 2;
+		keep[3] = c.fd;
+		keep[4] = ctl;
+		if(nativecloseexcept(keep, 5) < 0){
+			fprint(2, "qga9: detach descriptor cleanup: %r\n");
+			status = "detach descriptor cleanup";
+			goto out;
+		}
 	}
 	qgaqueries(q, nativequery);
+	load=nativeloadnew();
+	if(load!=nil) qgaloadops(q,nativeloadquery,load);
 	/* Created in the serving process, after detachment, with sole ownership. */
 	files = nativefiles();
 	if(files == nil){
@@ -152,5 +167,6 @@ out:
 	qgafree(q);
 	qgafilesfree(files);
 	nativeprocessfree(processes);
+	nativeloadfree(load);
 	exits(status);
 }

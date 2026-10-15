@@ -1,6 +1,35 @@
 /* SPDX-License-Identifier: MIT */
-/* Native descriptors only. No shell, stdio buffering or read-then-create race. */
+/* Native descriptors only. Exclusive leaf creation; no shell or stdio buffer. */
 #include "files.h"
+#include "native-create.h"
+
+static int
+filecreate(const char *path, int mode)
+{
+	char parent[QgaFilePathMax], *slash;
+	Dir *d;
+	int fd, n, allowed;
+
+	/* Cheap preflight for direct-device parents. The native helper then pins
+	 * the actual parent and rejects unions before exclusive relative create. */
+	n = strlen((char*)path);
+	if(n < 1 || n >= (int)sizeof parent || path[0] != '/') return -1;
+	memmove(parent, (void*)path, n+1);
+	slash = strrchr(parent, '/');
+	if(slash[1] == 0 || strcmp(slash+1, ".") == 0 || strcmp(slash+1, "..") == 0)
+		return -1;
+	if(slash == parent) slash++;
+	*slash = 0;
+	fd = open(parent, OREAD|OCEXEC);
+	if(fd < 0) return -1;
+	d = dirfstat(fd);
+	allowed = d != nil && d->type == 'M' && (d->mode&DMDIR) &&
+		(d->qid.type&QTDIR) && !(d->qid.type&QTAUTH);
+	free(d);
+	close(fd);
+	if(!allowed) return -1;
+	return nativefilecreate(path, mode);
+}
 
 static int
 fileopen(void *context, const char *path, int flags)
@@ -12,7 +41,7 @@ fileopen(void *context, const char *path, int flags)
 	mode = flags & QgaOpenWrite ? flags & QgaOpenRead ? ORDWR : OWRITE : OREAD;
 	fd = open((char*)path, mode|OCEXEC);
 	if(fd < 0 && (flags & QgaOpenTruncate))
-		fd = create((char*)path, mode|OCEXEC|OEXCL, 0600);
+		fd = filecreate(path, mode);
 	if(fd < 0)
 		return -1;
 	d = dirfstat(fd);
@@ -91,5 +120,8 @@ nativefiles(void)
 {
 	static const QgaFileIO io = {fileopen, fileclose, fileread, filewrite, fileseek};
 
+	/* No peer can rebind the namespace between parent validation and create.
+	 * Exec supervisors take their own namespace copies too. */
+	if(rfork(RFNAMEG) < 0) return nil;
 	return qgafilesnew(&io, nil);
 }

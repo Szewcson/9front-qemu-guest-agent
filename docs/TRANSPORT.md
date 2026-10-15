@@ -80,10 +80,12 @@ is an inference to verify, not a hardcoded rule or a guarantee of `eia1`.
    blocker is configuration, UART discovery, interrupts, permissions, framing,
    or missing transport support. Failure does not by itself justify a driver.
 
-ISA success has now been demonstrated by operator-supplied host output. The
-caller nevertheless requested a native virtio migration. It is a separate kernel
-phase needing port enumeration, named-port selection, queues, interrupts and
-reset/hotplug handling; no such driver is included here. The new `-t stream`
-adapter serves an existing native byte-stream device without UART controls,
-and has passed a native duplex-pipe test. See [the driver design](VIRTIO.md);
-do not switch the host to virtio before the native kernel/test gates pass.
+ISA success was demonstrated by operator-supplied host output. The caller also
+requested real virtio, now maintained in the separate
+[driver repository](https://github.com/Szewcson/9front-virtio-serial/blob/main/README.md).
+The native #Y stream path, repeated PVE backend reconnects, binary file/exec
+smoke tests and automatic cold startup have passed on the authorized VM.
+The QGA daemon remains transport-neutral and independent of kernel sources.
+INTx remains masked with bounded polling; checked interrupt and live fault/
+reset/unplug validation are pending. See [VIRTIO](VIRTIO.md) and the
+[driver ledger](https://github.com/Szewcson/9front-virtio-serial/blob/main/docs/STATUS.md).

@@ -1,6 +1,12 @@
 /* SPDX-License-Identifier: MIT */
 #include "json.h"
 
+#ifdef QGA_HOST_TEST
+#include <stdio.h>
+#define snprint snprintf
+int qgahostrunetochar(char*, unsigned int);
+#endif
+
 static int
 hex(int c)
 {
@@ -400,6 +406,9 @@ jgetstring(Jdoc *d, int t, char *out, int size)
 	int p, end, used, n, i;
 	unsigned int r;
 	uchar bytes[4];
+#ifndef QGA_HOST_TEST
+	Rune rune;
+#endif
 
 	if(d == nil || out == nil || size < 1 || t < 0 || t >= d->ntoken || d->token[t].type != Jstring)
 		return -1;
@@ -410,26 +419,15 @@ jgetstring(Jdoc *d, int t, char *out, int size)
 	while(p < end){
 		if(!character(d->text, end, &p, &r) || r == 0)
 			return -1;
-		if(r < 0x80){
-			bytes[0] = r;
-			n = 1;
-		}else if(r < 0x800){
-			bytes[0] = 0xC0 | (r >> 6);
-			bytes[1] = 0x80 | (r & 63);
-			n = 2;
-		}else if(r < 0x10000){
-			bytes[0] = 0xE0 | (r >> 12);
-			bytes[1] = 0x80 | ((r >> 6) & 63);
-			bytes[2] = 0x80 | (r & 63);
-			n = 3;
-		}else{
-			bytes[0] = 0xF0 | (r >> 18);
-			bytes[1] = 0x80 | ((r >> 12) & 63);
-			bytes[2] = 0x80 | ((r >> 6) & 63);
-			bytes[3] = 0x80 | (r & 63);
-			n = 4;
-		}
-		if(n > size-1-used)
+		/* character() already rejected invalid scalars; native libc encodes.
+		 * Keep the bounded JSON decoder and capacity check, not chartorune. */
+#ifdef QGA_HOST_TEST
+		n = qgahostrunetochar((char*)bytes, r);
+#else
+		rune = r;
+		n = runetochar((char*)bytes, &rune);
+#endif
+		if(n < 1 || n > (int)sizeof bytes || n > size-1-used)
 			return -1;
 		for(i = 0; i < n; i++)
 			out[used++] = bytes[i];
@@ -441,21 +439,14 @@ jgetstring(Jdoc *d, int t, char *out, int size)
 void
 jbint64(Jbuf *b, QgaInt64 value)
 {
-	QgaUint64 n;
 	char text[21];
-	int i;
+	int n;
 
-	if(value < 0){
-		jbchar(b, '-');
-		n = (QgaUint64)(-(value+1))+1;
-	}else
-		n = value;
-	i = sizeof text;
-	do {
-		text[--i] = '0'+n%10;
-		n /= 10;
-	} while(n != 0);
-	jbraw(b, text+i, sizeof text-i);
+	/* Proven capacity: sign + 19 decimal digits + NUL, including INT64_MIN.
+	 * Native snprint reports actual bytes, so do not rely on truncation counts. */
+	n = snprint(text, sizeof text, "%lld", value);
+	if(n < 1 || n >= (int)sizeof text){ b->failed = 1; return; }
+	jbraw(b, text, n);
 }
 
 void

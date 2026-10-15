@@ -58,31 +58,6 @@ makepipe(int *fd)
 	return 0;
 }
 
-/* Snapshot #d under the child's private descriptor table; close everything else.
- * Read in bounded chunks, not an input-sized allocation or a guessed fd ceiling. */
-static int
-closeexcept(int *keep, int count)
-{
-	Dir *d;
-	char *end;
-	int fd, n, i, j;
-	vlong target;
-	fd = open("#d", OREAD);
-	if(fd < 0) return -1;
-	while((n = dirread(fd, &d)) > 0){
-		for(i = 0; i < n; i++){
-			target = strtoll(d[i].name, &end, 10);
-			if(*end != 0 || target < 0 || target > 2147483647 || target == fd) continue;
-			for(j = 0; j < count; j++) if(keep[j] == target) break;
-			if(j == count) close(target);
-		}
-		free(d);
-		/* #d enumeration offsets depend on fd numbers, not live-entry count. */
-	}
-	close(fd);
-	return n < 0 ? -1 : 0;
-}
-
 static int
 nullstdio(void)
 {
@@ -105,7 +80,7 @@ childexec(QgaExecRequest *r, int input, int output, int error, int failure)
 	/* All source fds are above stdio; close-on-exec failure handshake stays private. */
 	if(dup(input, 0) < 0 || dup(output, 1) < 0 || dup(error, 2) < 0) goto fail;
 	keep[0] = 0; keep[1] = 1; keep[2] = 2; keep[3] = failure;
-	if(closeexcept(keep, 4) < 0) goto fail;
+	if(nativecloseexcept(keep, 4) < 0) goto fail;
 	for(i = 0; r->env[i] != nil; i++){
 		equals = strchr(r->env[i], '=');
 		if(equals == nil) goto fail;
@@ -169,7 +144,7 @@ execwaiter(int failure, int notice)
 	int keep[2], n;
 	uchar result;
 	keep[0] = failure; keep[1] = notice;
-	if(closeexcept(keep, 2) < 0) exits("exec handshake descriptors");
+	if(nativecloseexcept(keep, 2) < 0) exits("exec handshake descriptors");
 	n = read(failure, &result, 1);
 	result = n == 0 ? 0 : 1;
 	write(notice, &result, 1);
@@ -192,7 +167,7 @@ supervise(int channel, int parentalive, QgaExecRequest *request)
 	/* Parent pins this fresh note group before allowing any spawn. */
 	if(read(channel, &ack, 1) != 1) exits(nil);
 	keep[0] = channel; keep[1] = parentalive;
-	if(closeexcept(keep, 2) < 0 || nullstdio() < 0) goto failed;
+	if(nativecloseexcept(keep, 2) < 0 || nullstdio() < 0) goto failed;
 	result = malloc(sizeof *result);
 	if(result == nil) goto failed;
 	memset(result, 0, sizeof *result);

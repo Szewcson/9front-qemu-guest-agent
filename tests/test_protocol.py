@@ -45,7 +45,7 @@ class ProtocolTests(unittest.TestCase):
 
     def test_info(self):
         info = self.run_stream(request("guest-info"))[1][0]["return"]
-        self.assertEqual(info["version"], "qga9-0.4.0-dev")
+        self.assertEqual(info["version"], "qga9-0.6.0-dev")
         supported = info["supported_commands"]
         self.assertEqual({c["name"] for c in supported}, {
             "guest-sync", "guest-sync-delimited", "guest-ping", "guest-info",
@@ -103,7 +103,7 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(error["id"], 42)
 
     def test_native_queries_require_registered_backend(self):
-        for command in ["guest-get-vcpus", "guest-get-timezone", "guest-network-get-route"]:
+        for command in ["guest-get-vcpus", "guest-get-timezone", "guest-network-get-route", "guest-get-disks"]:
             with self.subTest(command=command):
                 self.assert_error(request(command), "Unsupported")
 
@@ -111,7 +111,7 @@ class ProtocolTests(unittest.TestCase):
         for command in ["guest-suspend-ram", "guest-suspend-disk", "guest-suspend-hybrid",
                         "guest-set-vcpus", "guest-get-memory-blocks", "guest-set-memory-blocks",
                         "guest-get-memory-block-info", "guest-get-cpustats", "guest-get-load",
-                        "guest-get-disks", "guest-get-fsinfo", "guest-get-diskstats",
+                        "guest-get-fsinfo", "guest-get-diskstats",
                         "guest-get-users", "guest-get-devices"]:
             with self.subTest(command=command):
                 self.assert_error(request(command), "Unsupported")

@@ -1,50 +1,22 @@
 # Development and verification
 
-## Organization
+## Repository boundary and ownership
 
-- `src/json.c`: bounded strict JSON tree, Unicode validation and ASCII serialization.
-- `src/qga.c`: byte framing, resynchronization, command policy and handlers.
-- `src/main.c`: stock 9front serial/stdio entry point and resource cleanup.
-- `src/native.c`: bounded native data queries and opt-in fixed-argv shutdown.
-- `src/guestinfo.c`: bounded CPU/route snapshot decoders and timezone JSON.
-- `src/files.c`, `src/native-files.c`: single-owner opaque file handles, bounded
-  base64 and native descriptor-based validation/create/truncate/seek.
-- `src/clock.c`, `src/native-clock.c`: testable clock/RTC transaction and native
-  fixed-device implementation, with explicit partial failures.
-- `src/base64.c`: shared canonical bounded binary codec.
-- `src/process.c`, `src/native-process.c`: bounded job ownership and private
-  supervisors, exec handshake, concurrent pipe draining and cancellation.
-- `src/qga.h`: single-owner transport-neutral feed/write API.
-- `mkfile`: native build/test/install/uninstall, no foreign runtime.
-- `tests/core-test.c`: portable core checks, natively runnable with `mk test`.
-- `tests/info-test.c`: the same CPU/timezone/route fixtures under native libc and
-  Linux sanitizers; native IP formatting is compared with the host test shim.
-- `tests/native-stream.rc`: native duplex raw-stream smoke test, no UART use.
-- `tests/files-test.c`, `tests/clock-test.c`: native-compatible bounded transfer,
-  handle lifecycle, overflow/argument validation and clock failure-order mocks.
-- `tests/native-files.rc`: live six-operation binary round-trip; retains fixture.
-- `tests/native-clock-test.c`: explicitly invoked live system/RTC mutation test;
-  never automatically run by `mk test`.
-- `tests/process-test.c`: native-compatible exec validation/ownership mocks.
-- `tests/native-process-test.c`, `tests/exec-fixture.c`: native argv/env/stdin,
-  capture, descriptor hygiene, flood output, reaping and owner-death cleanup.
-- `tests/native-exec-stream.rc`: actual daemon responsiveness while a job runs.
-- `scripts/test-proxmox.pl`: host integration via PVE's synchronized client;
-  synthetic file mutation, optional explicit current-time clock mutation.
-- `scripts/test-proxmox-exec.pl`: separate host exec smoke test, no host-file reads.
-- `tests/test_proxmox_script.py`, `tests/pve-mock/`: optional Perl-helper API and
-  cleanup regression tests; deliberately fake PVE, never evidence of live QGA.
-- `tests/host-main.c`: Linux-only stream harness, never the delivered daemon.
-- `tests/test_protocol.py`: real harness requests/replies, malformed cases and
-  deterministic random-input recovery. Python is development-only.
-- `tests/fuzz.c`: optional libFuzzer entry point for the same C core.
+This repository builds the native userspace daemon and tests. The separate
+[driver repository](https://github.com/Szewcson/9front-virtio-serial) owns kernel
+code, fixtures and boot helpers; no sibling checkout/kernel headers are required.
 
-The writer is synchronous and may return a short write. It must not retain its
-borrowed response pointer or recursively call the instance. A zero/error write
-is fatal and sticky. Protocol state is freed exactly once by its owner. A future
-virtio transport can reuse this API without changing command handlers.
+`json.c` and `qga.c` own parsing/framing/dispatch; `main.c` owns native channel
+setup. The guestinfo, files, clock, process and storage modules pair bounded
+logic with native adapters. `base64.c` wraps native libc; `native-fd.c` performs
+exact keep-set cleanup in private descriptor tables.
+[CODECS](CODECS.md) and [STORAGE](STORAGE.md) record reuse/adapter evidence.
 
-## Tests on Linux
+Each `Qga` instance has one synchronous owner. The writer may return a short
+write, but must not retain borrowed storage or recursively call that instance.
+Zero/error writes are sticky failures. Free instance state once, after use.
+
+## Linux checks
 
 ```sh
 make -C tests test
@@ -52,87 +24,93 @@ make -C tests sanitize
 make -C tests analyze
 ```
 
-GCC/Clang and optional Python are required only on the development host. The
-sanitizer target uses separate output files and ASan/UBSan with leak checks.
-`analyze` uses GCC's `-fanalyzer` and compiles to temporary object files (analyzer
-passes are not a proof of memory safety). See STATUS for what was actually run.
+Linux runs 11 C suites, a stream harness and 54 Python methods.
+GCC/Clang, libresolv, libc iconv and Python are host development dependencies.
+The installed daemon uses native 9front tools/runtime.
+Sanitizer output is separate and includes ASan/UBSan/leaks; GCC analyzer is
+additional evidence, not proof of safety. [STATUS](STATUS.md) records actual runs.
 
-The suite exercises sync bounds/type checking, delimited sync metadata/framing,
-ping/info, arbitrary/escaped transaction IDs, adjacent/multiline/fragmented
-objects, partial writes, invalid UTF-8/surrogates/JSON, duplicate decoded keys,
-oversize/depth/token limits, truncated input, error classes, unknown/excluded
-commands, resync after garbage and prompt replies without waiting for EOF.
+The stream harness supplies no native callbacks. C fixtures cover enabled
+handlers with deterministic query/file/clock/process/storage mocks; Python
+exercises stream framing and host-script/PVE API boundaries.
+Malformed UTF-8/JSON, exact integers/IDs, fragmentation/resync, short I/O,
+resource exhaustion, lifecycle cleanup and partial failures are covered.
+Mocks never perform real shutdown, clock mutation or PVE RPCs.
+High assertion counts include parameterized checks, not independent scenarios.
 
-The minimal Linux stream harness intentionally registers no native callbacks;
-its native query/file/clock/exec/shutdown requests return `Unsupported`. Native-compatible C mocks
-also verify enabled metadata, real handler dispatch, query failures/overflow,
-default powerdown/reboot modes, halt rejection, executor-failure retry, duplicate
-shutdown prevention and no success reply. Mocks never call native power APIs.
-File mocks cover 16-handle exhaustion, single cleanup, stale handles, invalid
-canonical base64, binary data, short/error reads/writes, EOF, seek modes,
-integer/path/chunk boundaries and no file mutation after shutdown starts. Clock
-mocks cover permission acquisition/cleanup, supplied/RTC-derived time, overflow,
-system-before-RTC ordering and explicit partial failure. High assertion counts
-include byte-by-byte fragmented request feeds, not distinct feature scenarios.
-Host-script mocks cross a real JSON boundary and check integer wire types,
-structured QGA error propagation and cleanup. If JSON::XS is available on the
-development host, run the same script suite with PVE-like scalar encoding:
+If JSON::XS is installed, rerun host-script tests using its wire-type behavior:
 
 ```sh
 QGA_PVE_MOCK_CODEC=xs python3 -m unittest discover -s tests -p test_proxmox_script.py -v
 ```
 
-XS is optional, development-only; native guest code needs no Perl runtime.
-An isolated temporary XS checkout can be supplied through `PERL5LIB`. The test
-suite adds only its own fake-PVE directory in front of that search path.
-Native UART reconnect, UI and actual shutdown need the live procedure; parser
-sentinel recovery is not a transport test.
-
-Optional coverage-guided fuzzing with an installed Clang/libFuzzer toolchain:
+Optional parser fuzzing, from this repository with Clang/libFuzzer:
 
 ```sh
+mkdir -p build
 clang -DQGA_HOST_TEST -g -O1 -fsanitize=fuzzer,address,undefined \
-  tests/fuzz.c src/json.c src/qga.c -o build/qga9-fuzz
+  tests/fuzz.c tests/host-rune.c src/json.c src/qga.c -o build/qga9-fuzz
 ./build/qga9-fuzz -max_len=16384 -runs=100000
 ```
 
-Create `build` first if it is missing. This recipe is optional and is not recorded
-as executed unless the compiler and run were available. Keep failures as small
-regression fixtures; never call native shutdown during fuzzing.
+This recipe is not an executed-test claim. Keep failures as bounded regression
+fixtures; fuzzing never calls native power APIs.
 
-## Native and live release gates
+## Native checks
 
-1. Native `mk` and `mk test` on stock 9front amd64. Record toolchain and source
-   revision, complete diagnostics, binary identity and exact commands.
-2. Verify QEMU ISA mapping, guest UART/control/status and permissions. Run the
-   foreground native daemon and `qm agent VMID ping`/`info`; save logs and UI
-   observations. See TRANSPORT/PROXMOX. Do not claim this gate from host tests.
-3. Verify native OS/host/time reporting and bounded `/net/ipifc`/Ethernet discovery;
-   add more multiple-interface/failure fixtures. The inspected `readipifc` source
-   had unchecked allocation dereferences, so this project uses its own bounded
-   status reader and checked allocation, with native libip address/mask parsing.
-4. Verify Proxmox OS/network commands and UI IP display, including IPv4/IPv6,
-   loopback, absent MACs, multiple addresses/interfaces and error handling.
-5. Verify the separately gated fixed-argv shutdown executor's native filesystem
-   flush and actual power behavior. Test host state on a disposable/approved VM;
-   no-success-reply mock tests are not evidence of flush or poweroff completion.
-6. Re-run safety/access review, native tests, fuzzing and live reconnect/boot
-   checks; publish a reproducible evidence ledger before calling it a release.
+```rc
+mk
+mk test
+```
 
-The caller explicitly overrode the original live-ping sequencing gate to request
-deployment readiness and opt-in shutdown. This does not waive remaining tests.
+The native target runs 9 portable userspace C suites, including real native
+libc base64, rune encoding, integer formatting and the load model.
+Two additional Linux suites mock native file and creator syscalls;
+their separate real-native regression is explicit.
+Native split builds still need a fresh guest run.
 
-## Expanded scope
+Optional native fixtures have separate effects:
 
-The operator subsequently requested all remaining standard QGA features and
-native virtio-serial even though ISA works. [FEATURES](FEATURES.md) records the
-full inventory and native prerequisites; [VIRTIO](VIRTIO.md) records the driver
-plan and migration gates. These requests supersede the original brief's feature
-exclusions and ISA-gap-only driver gate. The original brief is retained as
-history, not silently rewritten. Do not add Agent9 dependencies, custom
-host-control APIs or pretend unsupported kernel features work. Keep stock-native
-installation independent of any optional packaging system.
+| Check | Invocation | Effect |
+| --- | --- | --- |
+| Raw stream | `rc tests/native-stream.rc` | Private-pipe daemon test |
+| Files | `rc tests/native-files.rc` | Creates and retains a synthetic checkout file |
+| Processes | `mk qga9-native-process-test qga9-exec-fixture`, then `./qga9-native-process-test` | Starts synthetic children |
+| Exec stream | `rc tests/native-exec-stream.rc` | Private daemon/process responsiveness test |
+| Storage | `mk qga9-native-storage-test`, then `./qga9-native-storage-test` | Reads/stat-checks native kernel metadata |
+| Descriptors | `mk qga9-native-fd-test`, then `./qga9-native-fd-test` | Tests private child keep-set cleanup |
+| Load sampler | `mk qga9-native-load-test`, then `./qga9-native-load-test` | Starts one private sampler, reads kernel process metadata and requests stop |
+| JSON evaluation | `mk qga9-native-json-eval`, then `./qga9-native-json-eval` | Reproduces libjson incompatibilities |
+| File creation guard | `mk qga9-native-files-guard-test`, then `./qga9-native-files-guard-test` | Private namespace/environment; rejects device nodes and a mixed-device union, creates/removes owned synthetic `/tmp` fixtures |
+| Startup readiness | `rc tests/native-start.rc` | Privately binds a fake agent and mocks probes/sleep; logs retained, no actual channel opened |
+| Clock | `mk qga9-native-clock-test`, then `./qga9-native-clock-test` | Explicitly mutates system clock/RTC |
 
-No private addresses, passwords, SSH keys, agent sockets, API tokens, or personal
-boot configuration should be committed. Do not test by exposing a developer's
-whole filesystem to an untrusted guest via Drawterm.
+Default `mk test` does not run the live clock test or change installed service.
+Libjson evaluation does not link it into the daemon.
+Follow [9FRONT](9FRONT.md) and [PROXMOX](PROXMOX.md) for actual channel tests.
+
+## Pending fixes and release checks
+
+The source audit's startup and rejected-device-create fixes are local;
+see [STATUS](STATUS.md). Native regressions and deployment remain pending.
+The isolated creator pins the parent and rejects final-parent unions; it does
+not require trusting a different MCREATE branch. Its native namespace/srv-board
+semantics still require actual guest execution.
+Host mocks verify side effects and resource cleanup, not native namespace semantics.
+
+Before release, rerun the independent native build and tests; record source and
+binary identity. Validate each advertised command through the real PVE channel,
+UI, reconnect, cold startup and rollback. Real QGA shutdown needs approved
+filesystem/power verification. Driver reset/fault/unplug/interrupt gates belong
+to its repository. Host parser/sanitizer tests do not establish those properties.
+
+Native manuals are in `man/8`; install explicitly with `mk install-man`.
+`mk install-service` installs the helper, not its configuration or boot hook.
+Native libc now provides base64, rune encoding and decimal formatting; strict
+JSON parsing/validation remains local for exact integers and resource bounds.
+Upstream kernel integration belongs to the driver repository. Packaging remains
+independent of the native source/toolchain/runtime requirement.
+
+Keep credentials/private deployment data out of the repository.
+Development export isolation and same-user limits are described in
+[SECURITY](SECURITY.md).

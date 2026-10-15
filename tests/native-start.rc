@@ -1,0 +1,41 @@
+#!/bin/rc
+# SPDX-License-Identifier: MIT
+# Execute the real helper with native rc and isolated syscall-command fixtures.
+# No actual QGA device is opened; /bin/aux/qga9 is privately replaced by a fixture.
+rfork ens
+qga9_start_src=`{pwd}
+qga9_start_dir=/tmp/qga9-start-test-$pid
+if(test -e $qga9_start_dir) exit exists
+mkdir $qga9_start_dir || exit directory
+qga9_start_log=$qga9_start_dir/log
+qga9_start_case=delayed
+{echo '#!/bin/rc'; echo 'echo launch $* >>$qga9_start_log'} >$qga9_start_dir/agent
+chmod 755 $qga9_start_dir/agent || exit permissions
+bind $qga9_start_dir/agent /bin/aux/qga9 || exit bind
+{echo 'qga9_enabled=yes'; echo 'qga9_transport=stream';
+ echo 'qga9_device=''#Y0/data'''; echo 'qga9_shutdown=no'} >$qga9_start_dir/config
+fn test {
+	if(~ $#* 2 && ~ $1 -e && ~ $2 '#Y0/data'){
+		echo probe >>$qga9_start_log
+		qga9_start_probes=($qga9_start_probes probe)
+		if(~ $qga9_start_case ready || {~ $qga9_start_case delayed && ~ $#qga9_start_probes 3})
+			/bin/true
+		if not /bin/false
+	}
+	if not /bin/test $*
+}
+fn sleep { echo sleep >>$qga9_start_log; /bin/true }
+fn chmod { echo unexpected-chmod >>$qga9_start_log; /bin/false }
+for(qga9_start_case in ready delayed absent){
+	qga9_start_probes=()
+	echo -n >$qga9_start_log
+	rc $qga9_start_src/scripts/start.rc $qga9_start_dir/config
+	qga9_start_result=$status
+	qga9_start_lines=`{cat $qga9_start_log}
+	if(~ $qga9_start_case ready && {! ~ $qga9_start_result '' || ! ~ $#qga9_start_lines 7}) exit ready
+	if(~ $qga9_start_case delayed && {! ~ $qga9_start_result '' || ! ~ $#qga9_start_lines 11}) exit delayed
+	if(~ $qga9_start_case absent && {~ $qga9_start_result '' || ! ~ $#qga9_start_lines 61}) exit timeout
+}
+echo 'native startup: ready, delayed publication, bounded timeout; no real agent launch'
+echo 'fixture directory retained:' $qga9_start_dir
+exit ''

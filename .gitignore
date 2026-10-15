@@ -7,6 +7,12 @@
 /qga9-process-test
 /qga9-native-process-test
 /qga9-exec-fixture
+/qga9-storage-test
+/qga9-native-storage-test
+/qga9-native-fd-test
+/qga9-native-files-guard-test
+/qga9-base64-test
+/qga9-native-json-eval
 /*.6
 /*.8
 /*.5
@@ -14,3 +20,6 @@
 /build/
 __pycache__/
 *.pyc
+qga9-json-codec-test
+qga9-load-test
+/qga9-native-load-test

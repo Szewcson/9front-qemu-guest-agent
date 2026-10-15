@@ -1,0 +1,165 @@
+.TH QGA9 8
+.SH NAME
+qga9, qga9-start \- QEMU guest management for 9front
+.SH SYNOPSIS
+.B aux/qga9
+.B -d
+.I device
+[
+.B -t
+.I uart|stream
+]
+[
+.B -c
+.I controlfile
+]
+[
+.B -b
+.I baud
+]
+[
+.B -S
+]
+[
+.B -D
+]
+.PP
+.B aux/qga9 -s
+.PP
+.B qga9-start
+[
+.I config
+]
+.SH DESCRIPTION
+.I Qga9
+serves the QEMU Guest Agent (QGA) JSON protocol on one full-duplex native
+device. It has no protocol authentication: access to the host channel is
+management authority over the guest under the agent's identity.
+Only one agent should own a channel.
+.PP
+.B -t uart
+(the default) configures
+.I controlfile
+or, by default,
+.I device
+with
+.B ctl
+appended. UART settings are 8-bit, no parity, one stop bit and no flow control.
+The default baud is 38400; accepted rates are 9600, 19200, 38400, 57600 and 115200.
+.B -t stream
+opens a binary stream without a control device; it rejects
+.B -c
+and
+.BR -b .
+Use it with the separate virtio-serial driver's
+.BR #Y0/data .
+.PP
+.B -D
+detaches after validating and opening the channel, copying the descriptor,
+namespace, environment and note groups. The child closes inherited descriptors
+other than standard input/output/error and the channel/control descriptors.
+Foreground agents also take a private namespace for file operations.
+Start services in a clean native namespace, not a desktop export namespace.
+.PP
+.B -S
+enables
+.BR guest-shutdown .
+The default is disabled. Supported modes are powerdown and reboot, using fixed
+.B fshalt
+or
+.B fshalt -r
+arguments. Success has no protocol response and does not prove poweroff.
+.PP
+.B -s
+uses standard input/output for diagnostics. It enables queries and file
+operations but not execution, clock mutation or shutdown. It is not a safe
+unprivileged parser-only sandbox.
+.SS Commands and limits
+Enabled commands are reported by
+.BR guest-info .
+The implementation provides sync, delimited sync, ping, OS/host/time metadata,
+interfaces, vCPUs, timezone, routes, disks, load estimates, six file operations, clock setting,
+execution and execution status. Unsupported QGA commands return errors;
+filesystem freeze, trim, password mutation and CPU/memory reconfiguration
+are not implemented.
+.PP
+Requests are limited to 8192 bytes, 512 JSON tokens and depth 16;
+responses to 65536 bytes. IDs retain exact numeric lexemes.
+Base64 conversion uses libc with strict canonical validation.
+File transfers have 16 handles and 4096-byte chunks. Supported file modes
+are r, rb, r+, r+b, rb+, w, wb, w+, w+b and wb+; append modes are unsupported.
+Paths must be absolute and fit in 1024 bytes including the terminator.
+Handles are never reused within one agent instance. Restart invalidates them.
+.PP
+Existing files are checked through the opened descriptor before truncation.
+Only ordinary mounted filesystem files (device type M) are accepted.
+Creating a missing file also requires a readable mounted parent directory;
+direct device parents such as /env and /srv are rejected before creation.
+Creation is exclusive. A private helper anchors its cwd, rejects final-parent
+unions using native MCREATE self-bind validation and rechecks the mounted
+directory before creating the relative leaf. A leased owner-only srv board
+passes the descriptor back without sharing descriptor groups.
+Native regression remains pending. Mounted fileservers and metadata changes
+are not confined by these checks; later failure is not rollback.
+Flush means there is no userspace buffer; it does not guarantee durable storage.
+.PP
+If its private sampler starts, guest-get-load estimates runnable counts over
+one, five and fifteen minutes. It starts at zero with the sampler, not boot
+history. Snapshots and fixed-point rounding are approximate; invalid sources
+or long sampling gaps reset estimation and fail the query. This sampler has
+not yet passed a native guest test.
+.PP
+Execution has eight job/result slots, 4096-byte input and bounded output capture.
+Arguments are literal native argv, not interpolated shell text.
+There is no execution sandbox or runtime deadline. A host may explicitly
+execute a shell. Results are consumed on final status retrieval; unqueried
+results occupy slots. Cancellation and descendant cleanup are best effort.
+.PP
+Clock setting affects system time and UTC RTC. The two updates are not atomic;
+an error can report a partially changed clock.
+Channel errors terminate the agent without automatic replay or restart.
+Host timeouts and errors are not rollback guarantees.
+.SS Startup helper
+.I Qga9-start
+sources trusted rc configuration from
+.I config
+or
+.BR /cfg/$sysname/qga9 .
+Required settings are qga9_enabled=yes, qga9_transport=uart or stream,
+and qga9_device. Optional qga9_shutdown is yes or no (default no).
+The helper uses the daemon's default UART control path and baud rate.
+It applies restrictive permissions to
+ordinary configured endpoints. Canonical #Y data paths keep fixed driver
+permissions; for these it makes up to 30 one-second readiness waits using
+existence checks only, without opening or claiming the stream.
+It then launches one detached agent. It is not a restart supervisor.
+.SH FILES
+.TF /cfg/$sysname/qga9
+.TP
+.B /cfg/$sysname/qga9
+Trusted service configuration.
+.TP
+.B /rc/bin/qga9-start
+Installed startup helper.
+.TP
+.B #c/bintime
+System clock.
+.TP
+.B #r/rtc
+UTC real-time clock.
+.SH SOURCE
+.B src
+and
+.B scripts/start.rc
+in the 9front-qemu-guest-agent source repository.
+.SH SEE ALSO
+.IR rc (1),
+.IR encode (2),
+.IR rune (2),
+.IR vconsole (3),
+.IR fshalt (8)
+.SH BUGS
+The agent is experimental. QGA provides no guest trust attestation or host
+isolation. Blocking device/fileserver I/O can stop progress.
+Neither bounded parsing nor a private namespace protects against a hostile
+guest kernel, host or another eve process.

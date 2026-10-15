@@ -88,6 +88,7 @@ querymock(int command, Jbuf *b)
 	case QgaVcpus: jbtext(b, "[{\"logical-id\":0,\"online\":true,\"can-offline\":false}]"); break;
 	case QgaTimezone: jbtext(b, "{\"offset\":3600,\"zone\":\"CET\"}"); break;
 	case QgaRoutes: jbtext(b, "[]"); break;
+	case QgaDisks: jbtext(b, "[]"); break;
 	default: return -1;
 	}
 	return 0;
@@ -167,7 +168,7 @@ extendedchecks(Sink *out, Jdoc *doc)
 		fail("enabled metadata JSON");
 	r = jmember(doc, 0, "return");
 	a = jmember(doc, r, "supported_commands");
-	if(a < 0 || doc->token[a].count != 12 ||
+	if(a < 0 || doc->token[a].count != 13 ||
 	   strstr(out->text, "\"name\":\"guest-shutdown\",\"enabled\":true,\"success-response\":false") == nil)
 		fail("enabled metadata");
 	feedcheck(q, out, "{\"execute\":\"guest-shutdown\",\"arguments\":{\"mode\":\"halt\"}}",

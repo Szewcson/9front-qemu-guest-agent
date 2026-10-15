@@ -1,19 +1,23 @@
 /* SPDX-License-Identifier: MIT */
 /* Strict native text decoders, shared unchanged by native and host tests. */
 #include "guestinfo.h"
+#ifdef QGA_HOST_TEST
+#include <stdio.h>
+#define snprint snprintf
+#endif
 
 static void
 number(Jbuf *b, unsigned long value)
 {
 	char text[32];
-	int i;
-
-	i = sizeof text;
-	do {
-		text[--i] = '0' + value%10;
-		value /= 10;
-	} while(value != 0 && i > 0);
-	jbraw(b, text+i, sizeof text-i);
+	int n;
+#ifdef QGA_HOST_TEST
+	n = snprint(text, sizeof text, "%lu", value);
+#else
+	n = snprint(text, sizeof text, "%lud", value);
+#endif
+	if(n < 1 || n >= (int)sizeof text){ b->failed = 1; return; }
+	jbraw(b, text, n);
 }
 
 static int

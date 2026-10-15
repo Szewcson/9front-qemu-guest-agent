@@ -30,6 +30,7 @@ enum {
 	QgaTimezone,
 	QgaRoutes,
 	QgaDisks,
+	QgaLoadAverage,
 	QgaFileOpen = 0,
 	QgaFileClose,
 	QgaFileRead,
@@ -59,6 +60,7 @@ typedef struct Jdoc Jdoc;
 /* Return bytes consumed, or <= 0 on failure. Never retain the buffer. */
 typedef long (*QgaWrite)(void*, const uchar*, long);
 typedef int (*QgaQuery)(int, Jbuf*);
+typedef int (*QgaLoadQuery)(void*, Jbuf*);
 typedef int (*QgaShutdown)(void*, int);
 /* Returns 0, -1 (GenericError), or -2 (Unsupported); description is trusted. */
 typedef int (*QgaFileop)(void*, int, Jdoc*, int, Jbuf*, const char**);
@@ -68,6 +70,7 @@ Qga *qganew(QgaWrite, void*);
 void qgafree(Qga*);
 /* Configure once, before the first feed; callbacks remain caller-owned. */
 void qgaqueries(Qga*, QgaQuery);
+void qgaloadops(Qga*, QgaLoadQuery, void*);
 void qgashutdown(Qga*, QgaShutdown, void*);
 void qgafileops(Qga*, QgaFileop, void*);
 void qgasettime(Qga*, QgaSettime, void*);

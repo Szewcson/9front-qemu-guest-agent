@@ -39,9 +39,35 @@ if(! test -x /bin/aux/qga9){
 qga9_permissions=($qga9_device)
 if(~ $qga9_transport uart)
 	qga9_permissions=($qga9_device $qga9_device^ctl)
-if(! chmod 600 $qga9_permissions){
-	echo 'qga9: cannot restrict the dedicated channel' >[1=2]
-	exit permissions
+qga9_fixed_permissions=no
+if(~ $qga9_transport stream){
+	# This Dev enforces eve/exact Chan checks and fixed 0600 itself; wstat is
+	# denied. Never skip chmod for arbitrary stream paths or prefix lookalikes.
+	switch($qga9_device){
+	case '#Y/data' '#Y0/data' '#Y1/data' '#Y2/data' '#Y3/data'
+		qga9_fixed_permissions=yes
+	}
+}
+if(~ $qga9_fixed_permissions yes){
+	# Dev publication is asynchronous. Wait without opening/claiming data, and
+	# launch exactly once. A subshell makes success/timeout explicit rc status.
+	if(! @{
+		for(qga9_try in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30){
+			if(test -e $qga9_device)
+				exit ''
+			sleep 1 || exit sleep
+		}
+		test -e $qga9_device
+	}){
+		echo 'qga9: native vconsole endpoint not ready after 30 seconds' >[1=2]
+		exit missing
+	}
+}
+if not {
+	if(! chmod 600 $qga9_permissions){
+		echo 'qga9: cannot restrict the dedicated channel' >[1=2]
+		exit permissions
+	}
 }
 qga9_flags=()
 if(~ $qga9_shutdown yes)

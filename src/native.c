@@ -332,7 +332,7 @@ int
 nativeshutdown(void *context, int mode)
 {
 	ShutdownContext *c;
-	int pid, nullfd, consfd;
+	int pid, nullfd, consfd, keep[3];
 	char *argv[4];
 
 	c = context;
@@ -359,6 +359,11 @@ nativeshutdown(void *context, int mode)
 			_exits("redirect fshalt");
 		close(nullfd);
 		close(consfd);
+		keep[0] = 0;
+		keep[1] = 1;
+		keep[2] = 2;
+		if(nativecloseexcept(keep, 3) < 0)
+			_exits("shutdown descriptor cleanup");
 		argv[0] = "rc";
 		argv[1] = "/bin/fshalt";
 		argv[2] = mode == QgaReboot ? "-r" : nil;

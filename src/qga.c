@@ -5,6 +5,8 @@ struct Qga {
 	QgaWrite write;
 	void *context;                /* Borrowed; owner outlives the instance. */
 	QgaQuery query;
+	QgaLoadQuery loadquery;
+	void *loadcontext;
 	QgaShutdown shutdown;
 	void *shutdowncontext;
 	QgaFileop fileop;
@@ -47,6 +49,7 @@ static const Command commands[] = {
 	{"guest-set-time", -2, -1},
 	{"guest-exec", -3, -1}, {"guest-exec-status", -4, -1},
 	{"guest-get-disks", QgaDisks, -1},
+	{"guest-get-load", QgaLoadAverage, -1},
 };
 
 static const char *const unsupported[] = {
@@ -57,7 +60,7 @@ static const char *const unsupported[] = {
 	"guest-ssh-add-authorized-keys", "guest-ssh-remove-authorized-keys",
 	"guest-suspend-ram", "guest-suspend-disk", "guest-suspend-hybrid",
 	"guest-set-vcpus", "guest-get-memory-blocks", "guest-set-memory-blocks",
-	"guest-get-memory-block-info", "guest-get-cpustats", "guest-get-load",
+	"guest-get-memory-block-info", "guest-get-cpustats",
 	"guest-get-fsinfo", "guest-get-diskstats",
 	"guest-get-users", "guest-get-devices",
 };
@@ -101,6 +104,12 @@ qgaqueries(Qga *q, QgaQuery query)
 }
 
 void
+qgaloadops(Qga *q, QgaLoadQuery query, void *context)
+{
+	q->loadquery=query; q->loadcontext=context;
+}
+
+void
 qgashutdown(Qga *q, QgaShutdown shutdownfn, void *context)
 {
 	q->shutdown = shutdownfn;
@@ -124,7 +133,8 @@ qgasettime(Qga *q, QgaSettime settime, void *context)
 static int
 available(Qga *q, int command)
 {
-	return !((commands[command].query >= 0 && q->query == nil) ||
+	return !((commands[command].query == QgaLoadAverage ? q->loadquery == nil :
+		(commands[command].query >= 0 && q->query == nil)) ||
 		(commands[command].query == -2 && q->settime == nil) ||
 		(commands[command].query <= -3 && q->execop == nil) ||
 		(commands[command].file >= 0 && q->fileop == nil) ||
@@ -295,10 +305,12 @@ dispatch(Qga *q)
 	else if(command == 2)
 		jbtext(&q->buf, "{}");
 	else if(commands[command].query >= 0){
-		if(q->query(commands[command].query, &q->buf) < 0 || q->buf.failed)
+		result = commands[command].query == QgaLoadAverage ?
+			q->loadquery(q->loadcontext,&q->buf) : q->query(commands[command].query, &q->buf);
+		if(result < 0 || q->buf.failed)
 			return error(q, id, "GenericError", "Cannot read or serialize native guest information");
 	}else{
-		jbtext(&q->buf, "{\"version\":\"qga9-0.5.0-dev\",\"supported_commands\":[");
+		jbtext(&q->buf, "{\"version\":\"qga9-0.6.0-dev\",\"supported_commands\":[");
 		first = 1;
 		for(i = 0; i < (int)(sizeof commands / sizeof commands[0]); i++){
 			if(!available(q, i))
