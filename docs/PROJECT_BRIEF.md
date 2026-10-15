@@ -56,11 +56,12 @@ Filesystem freeze and automatic trim stay disabled until implemented.
    validate real IRQ, reset/fault/unplug and platform behavior before release.
 6. Provide working commands and honest current evidence in [STATUS](STATUS.md).
 
-Current code is experimental. The repository split still needs native build/VM
-verification. Startup-readiness and rejected-device-create fixes are local with
-native regressions pending. The private creator rejects final-parent unions
+Current code is experimental. Independent native builds and basic local QEMU
+integration passed; updated Proxmox acceptance and broader platform safety
+remain pending. Startup-readiness and rejected-device-create fixes passed native
+regressions. The private creator rejects final-parent unions
 instead of trusting mixed-device union creation policy. Continuous native load
-estimates are implemented locally but have no passing native run yet.
+estimates passed native sampler and real local virtio-query tests.
 Native manuals are prepared, as is the driver's upstream-layout export.
 Neither implies completed deployment or upstream acceptance. Driver-neutral
 compatibility names remain a future migration decision.

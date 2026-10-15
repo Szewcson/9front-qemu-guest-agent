@@ -64,7 +64,7 @@ nativefilecreate(const char *path, int mode)
 	directory = parent[0] == 0 ? "/" : parent;
 	lease = open("#s/clone", OREAD|OCEXEC);
 	if(lease < 0) return -1;
-	post = fd = -1; pipefd[0] = pipefd[1] = -1; result = -1;
+	post = -1; pipefd[0] = pipefd[1] = -1; result = -1;
 	used = 0;
 	while(used < (int)sizeof board-1){
 		n = read(lease, board+used, sizeof board-1-used);

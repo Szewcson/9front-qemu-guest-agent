@@ -32,9 +32,14 @@ It never binds a device into the namespace or opens partition data/raw files.
 
 The backend cross-checks every ctl partition with `devsd` directory metadata:
 device type `S`, partition QID kind, unique matching name and exact byte length.
-Every partition must appear in both snapshots. It rereads ctl after the scan and
-rejects detected changes. Kernel QID kind 6 is verified against the inspected
-stock `devsd.c`; a kernel with a different layout needs an adapter update.
+Every partition must appear in both snapshots. It rereads ctl after the scan,
+reparses inventory and rejects changed geometry/extents rather than treating
+changing IDE IRQ/error diagnostics as partition changes. When ATAPI ctl omits
+geometry, the actual whole-data extent and directory byte length must determine
+one positive integral sector size, and every partition length must agree.
+Empty media do not cause a guessed sector size. Kernel QID kind 6 is verified
+against the inspected stock `devsd.c`; a kernel with a different layout needs an
+adapter update.
 No caller-selected path is accepted and no device control write is performed.
 
 These are bounded observations, not an atomic hotplug/filesystem transaction.
@@ -46,8 +51,11 @@ The live test VM returned one whole-data node and four native partitions. The
 separate read-only native test stat-checked all five. The operator subsequently
 supplied the same successful inventory through PVE on `0.5.0-dev`; that host
 gate is passed on operator evidence, not an independent developer host session.
-Hotplug, multi-controller systems, removable media and fault injection remain
-unverified. PROXMOX retains the read-only query for future regression checks.
+The local native guest additionally passed 63 read-only checks over six nodes,
+including an IDE CD-ROM, and the real virtio query returned that inventory.
+Storage hotplug, multi-controller systems, broader removable-media behavior
+and fault injection remain unverified. PROXMOX retains the read-only query for
+future regression checks.
 
 ## Remaining: guest-get-fsinfo
 

@@ -8,9 +8,11 @@ enum { SdTypeMask = 15, SdQpart = 6, SdEntryMax = 256 };
 typedef struct Snapshot Snapshot;
 struct Snapshot {
 	QgaDiskUnit unit;
+	QgaDiskUnit afterunit;
 	char before[QgaDiskTextMax+1];
 	char after[QgaDiskTextMax+1];
 	int seen[QgaDiskPartMax];
+	QgaUint64 length[QgaDiskPartMax];
 };
 
 static int
@@ -47,7 +49,6 @@ static int
 parts(Snapshot *s, char *path)
 {
 	Dir *entries;
-	QgaDiskPart *p;
 	int fd, n, i, j, count, result;
 
 	fd = open(path, OREAD|OCEXEC);
@@ -72,11 +73,11 @@ parts(Snapshot *s, char *path)
 				result = -1;
 				break;
 			}
-			p = &s->unit.part[j];
-			if(entries[i].length < 0 || (uvlong)entries[i].length != (p->end-p->start)*s->unit.secsize){
+			if(entries[i].length < 0){
 				result = -1;
 				break;
 			}
+			s->length[j] = entries[i].length;
 			s->seen[j] = 1;
 		}
 		free(entries);
@@ -89,7 +90,7 @@ parts(Snapshot *s, char *path)
 	for(j = 0; j < s->unit.npart; j++)
 		if(!s->seen[j])
 			result = -1;
-	return result;
+	return result < 0 ? -1 : qgadisklengths(&s->unit, s->length);
 }
 
 static int
@@ -103,12 +104,23 @@ unit(Snapshot *s, char *name, Jbuf *b, int *count)
 	snprint(path, sizeof path, "#S/%s", name);
 	snprint(ctl, sizeof ctl, "%s/ctl", path);
 	n = readctl(ctl, s->before);
-	if(n < 0 || qgadiskparse(&s->unit, s->before, n) < 0 || parts(s, path) < 0)
-		return -1;
-	/* No hotplug/partition transaction lock is exported. Reject detected changes. */
+	if(n < 0) return -1;
+	if(qgadiskparse(&s->unit, s->before, n) < 0){
+		werrstr("invalid %s ctl inventory", name); return -1;
+	}
+	if(parts(s, path) < 0){
+		werrstr("inconsistent %s partition metadata", name); return -1;
+	}
+	/* Native IDE ctl includes live IRQ/error counters. Compare the parsed
+	 * inventory, not diagnostic text that can change during unrelated I/O.
+	 * Revalidate the second table against the same observed byte lengths. */
 	m = readctl(ctl, s->after);
-	if(m != n || memcmp(s->before, s->after, n) != 0)
+	if(m < 0 || qgadiskparse(&s->afterunit, s->after, m) < 0 ||
+	   qgadisklengths(&s->afterunit, s->length) < 0 ||
+	   memcmp(&s->unit, &s->afterunit, sizeof s->unit) != 0){
+		werrstr("%s partition inventory changed", name);
 		return -1;
+	}
 	return qgadiskemit(b, name, &s->unit, count);
 }
 

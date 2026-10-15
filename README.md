@@ -42,14 +42,18 @@ queries, binary files, clock setting and execution passed. The last verified VM
 cold-booted the separate virtio kernel and automatically started `0.5.1-dev`;
 the operator supplied passing PVE info, file and five exec smoke tests.
 
-Native builds and VM checks have not been rerun after the repository split.
+The independent daemon and nine portable suites now build/test natively in an
+isolated local QEMU guest. Real file-guard, sampler, process and stream tests
+passed; disk inventory includes an IDE hard disk and CD-ROM.
 Current ThreadSanitizer fixtures failed runtime initialization, so no current
-TSan pass is claimed. The driver leaves INTx masked and polls at 100 ms
-deadlines; live fault/reset/unplug and full platform safety checks remain open.
+TSan pass is claimed. The separate driver defaults to masked INTx/polling;
+its explicit checked-IRQ test kernel passed real emulated IRQ delivery,
+forced status reset and named-port removal/re-add. This is not full platform
+safety or PCI-controller hot-unplug certification.
 Local fixes add a bounded endpoint-readiness wait and pinned-parent exclusive
 creation in a private helper. Creation rejects final-parent unions, including
 mixed-device unions, rather than trusting their create-branch policy. Native
-regressions, the new load sampler and deployment remain unverified.
+regressions and wire queries passed locally; Proxmox deployment remains pending.
 See [STATUS](docs/STATUS.md) for evidence and remaining gates.
 
 ## Build and run

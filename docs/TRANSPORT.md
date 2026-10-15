@@ -86,6 +86,8 @@ requested real virtio, now maintained in the separate
 The native #Y stream path, repeated PVE backend reconnects, binary file/exec
 smoke tests and automatic cold startup have passed on the authorized VM.
 The QGA daemon remains transport-neutral and independent of kernel sources.
-INTx remains masked with bounded polling; checked interrupt and live fault/
-reset/unplug validation are pending. See [VIRTIO](VIRTIO.md) and the
+Default INTx remains masked with bounded polling. A separate local checked-IRQ
+test kernel passed actual emulated IRQ delivery, forced reset, malformed-ring
+and named-port recovery tests; broader live fault/platform validation is pending.
+See [VIRTIO](VIRTIO.md) and the
 [driver ledger](https://github.com/Szewcson/9front-virtio-serial/blob/main/docs/STATUS.md).

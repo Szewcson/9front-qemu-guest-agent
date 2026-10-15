@@ -99,15 +99,15 @@ Creation is exclusive. A private helper anchors its cwd, rejects final-parent
 unions using native MCREATE self-bind validation and rechecks the mounted
 directory before creating the relative leaf. A leased owner-only srv board
 passes the descriptor back without sharing descriptor groups.
-Native regression remains pending. Mounted fileservers and metadata changes
-are not confined by these checks; later failure is not rollback.
+Mounted fileservers and metadata changes are not confined by these checks;
+later failure is not rollback.
 Flush means there is no userspace buffer; it does not guarantee durable storage.
 .PP
 If its private sampler starts, guest-get-load estimates runnable counts over
 one, five and fifteen minutes. It starts at zero with the sampler, not boot
 history. Snapshots and fixed-point rounding are approximate; invalid sources
-or long sampling gaps reset estimation and fail the query. This sampler has
-not yet passed a native guest test.
+or long sampling gaps reset estimation and fail the query. Estimates need
+time to settle after sampler startup or reset.
 .PP
 Execution has eight job/result slots, 4096-byte input and bounded output capture.
 Arguments are literal native argv, not interpolated shell text.

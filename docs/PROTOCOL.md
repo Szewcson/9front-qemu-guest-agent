@@ -64,7 +64,8 @@ The elapsed source is native process milliseconds modulo 2^32, not wall time.
 Invalid metadata, excessive process counts or gaps longer than three seconds
 reset the model and fail that query rather than inventing missing samples.
 Later valid samples restart estimation. The model/protocol have host tests;
-the actual native sampler and lifecycle remain unverified.
+normal native sampler/query tests and real virtio queries also passed. This is
+not exhaustive failure/lifetime validation.
 
 ## JSON and framing
 
@@ -157,7 +158,8 @@ or trust guarantee; a guest can forge its own answers.
   remains `Unsupported`, invalid modes/arguments return `GenericError`.
   One successfully initiated operation is permitted per instance. Executor-fork
   success is not confirmation of flush completion or actual poweroff: later exec,
-  filesystem or ACPI failures are console-only. Live power semantics are untested.
+  filesystem or ACPI failures are console-only. Local emulated powerdown passed;
+  reboot, other platforms and power-failure paths remain unverified.
   Once shutdown is initiated, file, clock and execution operations are rejected.
 
 ## File semantics and limits
@@ -179,7 +181,7 @@ or trust guarantee; a guest can forge its own answers.
   MCREATE self-bind validation, rechecks the mounted directory, and creates the
   relative leaf exclusively. A leased, owner-only srv board transfers the
   descriptor back without sharing the helper's descriptor table. Native
-  namespace regression/deployment is pending.
+  mixed-union/leased-board regression passed locally; Proxmox deployment is pending.
   Access follows the agent's native identity and namespace; errors are not a
   general no-side-effect or rollback guarantee.
 - Read count defaults to 4096; read/write count is limited to 0..4096 bytes.
@@ -209,6 +211,8 @@ whole UTC seconds. If readback/RTC update fails after the system change, the err
 explicitly says so; there is no pretend atomic update or automatic rollback.
 An independent time-sync process can concurrently adjust/override the system
 clock; the agent does not stop it. Stdio mode cannot invoke this setter.
+Native timesync `-L` assumes a local-time RTC and conflicts with this UTC policy;
+an immediate successful readback does not establish persistent synchronization.
 
 ## Execution semantics and limits
 

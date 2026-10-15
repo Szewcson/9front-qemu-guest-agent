@@ -28,15 +28,19 @@ because they configure/start QGA, not the kernel. The helper skips chmod only fo
 exact canonical #Y data paths; ordinary stream/UART restrictions remain.
 The local helper now waits up to 30 one-second attempts for asynchronous driver
 publication, without opening data, then launches once or reports timeout.
-Native regression and deployment of this change remain pending.
+Native ready/delayed/absent fixtures passed locally; deployment on Proxmox
+remains pending.
 
 The last verified deployment used the normal Proxmox virtio QGA channel and
 automatic cold startup. Host socket reconnect preserves the guest's file/job
 state and Chan ownership; positive writes wait while the backend is closed.
 Actual guest close, removal or terminal controller faults follow driver reset/
-drain rules. No protocol handlers, command count or agent version changed.
+drain rules. The current `0.6.0-dev` additionally provides load estimates;
+the driver split itself does not add protocol handlers.
 
 The driver is QGA-port-focused and PC64/coherent little-endian only. IRQ routing
-is not fully verified: INTx stays masked and the worker polls. Stock kernel and
+is not fully verified: default INTx stays masked and the worker polls. A separate
+local checked-IRQ kernel passed real emulated IRQ, forced reset, malformed-ring
+and named-port recovery tests; full platform validation is still open. Stock kernel and
 ISA rollback configuration must remain available. Repo splitting does not
 reinstall or reboot the guest.

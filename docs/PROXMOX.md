@@ -67,7 +67,7 @@ qm agent "$VMID" get-timezone
 Current source reports `qga9-0.6.0-dev`: 22 advertised management commands,
 23 with `-S`, when the load sampler starts. Sampler startup failure reduces
 each count by one. The last verified deployed version remains `0.5.1-dev`;
-the new version has not passed native or PVE integration tests.
+the new version passed native/local-QEMU tests, not new PVE integration tests.
 Save exact output, guest device/status/logs and versions. Repeat host connections,
 then inspect PVE UI status/IP display separately. Compare reported native values
 with guest OS, time, `/net/ipifc/*/status`, CPU and route sources.
@@ -156,11 +156,13 @@ Actual guest close/removal/fault requires drained driver reset and a fresh epoch
 Fixed #Y permissions are eve-only and immutable. Configure the QGA helper with
 `qga9_transport=stream` and the verified canonical data path.
 The local helper now makes up to 30 one-second readiness waits, then launches
-once or reports timeout. It does not claim data to probe. Native regression
-and deployment remain pending; earlier cold-boot evidence used the old helper.
+once or reports timeout. It does not claim data to probe. Native ready/delayed/
+absent fixtures passed; Proxmox deployment remains pending and earlier PVE
+cold-boot evidence used the old helper.
 
-INTx stays masked with 100 ms polling; checked IRQ and deliberate hardware
-fault/reset/unplug tests remain incomplete. Preserve stock kernel/config and ISA
+Default INTx stays masked with 100 ms polling. Local checked-IRQ, forced reset,
+malformed-ring and named-port recovery tests passed; broader hardware/fault
+validation remains incomplete. Preserve stock kernel/config and ISA
 service rollback. See the driver's
 [STATUS](https://github.com/Szewcson/9front-virtio-serial/blob/main/docs/STATUS.md).
 
@@ -181,7 +183,10 @@ qm agent "$VMID" ping
 QGA initiation has no success reply. Fixed native `fshalt` argv attempts storage
 halt before powerdown; fork success/timeout is not proof of flush or poweroff.
 Inspect the VM console and host state. Do not substitute forced stop/reset while
-the filesystem is active. Actual QGA power behavior remains unverified.
+the filesystem is active. Local QEMU powerdown passed with filesystem halt and
+a QMP guest-shutdown event; this is not new Proxmox acceptance, a reboot test or
+power-failure validation. Review the UTC RTC policy in [9FRONT](9FRONT.md) before
+clock tests; native timesync `-L` can override an initially successful result.
 
 ## Troubleshooting and rollback
 

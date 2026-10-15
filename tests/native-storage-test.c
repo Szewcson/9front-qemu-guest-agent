@@ -10,7 +10,7 @@ check(int ok, char *message)
 {
 	checks++;
 	if(!ok)
-		sysfatal("FAIL: %s", message);
+		sysfatal("FAIL: %s: %r", message);
 }
 
 void

@@ -67,7 +67,8 @@ The native target runs 9 portable userspace C suites, including real native
 libc base64, rune encoding, integer formatting and the load model.
 Two additional Linux suites mock native file and creator syscalls;
 their separate real-native regression is explicit.
-Native split builds still need a fresh guest run.
+The independent native build and these suites passed in the isolated local
+guest; see STATUS for exact results, optional fixtures and remaining gates.
 
 Optional native fixtures have separate effects:
 
@@ -92,16 +93,18 @@ Follow [9FRONT](9FRONT.md) and [PROXMOX](PROXMOX.md) for actual channel tests.
 ## Pending fixes and release checks
 
 The source audit's startup and rejected-device-create fixes are local;
-see [STATUS](STATUS.md). Native regressions and deployment remain pending.
+see [STATUS](STATUS.md). Native regressions passed locally; Proxmox deployment
+and target-specific acceptance remain pending.
 The isolated creator pins the parent and rejects final-parent unions; it does
 not require trusting a different MCREATE branch. Its native namespace/srv-board
-semantics still require actual guest execution.
+path passed the explicit mixed-union fixture.
 Host mocks verify side effects and resource cleanup, not native namespace semantics.
 
 Before release, rerun the independent native build and tests; record source and
 binary identity. Validate each advertised command through the real PVE channel,
-UI, reconnect, cold startup and rollback. Real QGA shutdown needs approved
-filesystem/power verification. Driver reset/fault/unplug/interrupt gates belong
+UI, reconnect, cold startup and rollback. Local QGA powerdown passed;
+target-specific filesystem/power and reboot verification remain necessary.
+Driver reset/fault/unplug/interrupt gates belong
 to its repository. Host parser/sanitizer tests do not establish those properties.
 
 Native manuals are in `man/8`; install explicitly with `mk install-man`.

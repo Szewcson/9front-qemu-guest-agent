@@ -2,6 +2,7 @@
 #include "../src/load.h"
 #ifdef QGA_HOST_TEST
 #include <stdio.h>
+#define USED(value) ((void)(value))
 #endif
 static int checks;
 static void check(int ok, char *why)
@@ -22,7 +23,7 @@ static long capture(void *context, const uchar *text, long n)
 	memmove(s->text+s->used,(void*)text,n); s->used+=n; s->text[s->used]=0; return n;
 }
 static int query(void *context, Jbuf *b) { return qgaloademit(b,context); }
-static int failed(void *context, Jbuf *b) { (void)context; jbtext(b,"broken"); return -1; }
+static int failed(void *context, Jbuf *b) { USED(context); jbtext(b,"broken"); return -1; }
 #ifdef QGA_HOST_TEST
 int main(void)
 #else

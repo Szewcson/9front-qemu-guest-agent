@@ -92,7 +92,7 @@ qgadiskparse(QgaDiskUnit *u, const char *text, int size)
 	char field[8][QgaDiskNameMax];
 	QgaUint64 ignored, max;
 	QgaDiskPart *p;
-	int pos, end, start, n, geometry, inquiry, i;
+	int pos, end, start, n, geometry, inquiry, i, whole;
 
 	if(u == nil || text == nil || size <= 0 || size > QgaDiskTextMax ||
 	   text[size-1] != '\n' || memchr(text, 0, size) != nil)
@@ -120,7 +120,7 @@ qgadiskparse(QgaDiskUnit *u, const char *text, int size)
 			if(n < 0)
 				return -1;
 			if(strcmp(field[0], "geometry") == 0){
-				if(geometry || n < 3 || decimal(field[1], max, &u->sectors) < 0 ||
+				if(geometry || u->npart != 0 || n < 3 || decimal(field[1], max, &u->sectors) < 0 ||
 				   decimal(field[2], 4294967295ULL, &u->secsize) < 0 ||
 				   u->secsize == 0 || u->sectors > max/u->secsize)
 					return -1;
@@ -129,11 +129,11 @@ qgadiskparse(QgaDiskUnit *u, const char *text, int size)
 						return -1;
 				geometry = 1;
 			}else{
-				if(!geometry || n != 4 || u->npart == QgaDiskPartMax || !component(field[1]))
+				if(n != 4 || u->npart == QgaDiskPartMax || !component(field[1]))
 					return -1;
 				p = &u->part[u->npart];
 				if(decimal(field[2], max, &p->start) < 0 || decimal(field[3], max, &p->end) < 0 ||
-				   p->start > p->end || p->end > u->sectors)
+				   p->start > p->end || (geometry && p->end > u->sectors))
 					return -1;
 				for(i = 0; i < u->npart; i++)
 					if(strcmp(u->part[i].name, field[1]) == 0)
@@ -144,8 +144,51 @@ qgadiskparse(QgaDiskUnit *u, const char *text, int size)
 		}
 		pos = end+1;
 	}
+	/* Native IDE ATAPI ctl can list partitions without a geometry line. Do not
+	 * guess 512/2048-byte sectors. Require a real whole-data extent, then let
+	 * qgadisklengths derive and verify the sector size from directory metadata. */
+	if(!geometry && u->npart != 0){
+		whole = -1;
+		for(i=0; i<u->npart; i++)
+			if(strcmp(u->part[i].name,"data")==0 && u->part[i].start==0) whole=i;
+		if(whole<0) return -1;
+		u->sectors=u->part[whole].end;
+		for(i=0; i<u->npart; i++) if(u->part[i].end>u->sectors) return -1;
+	}
 	/* Inquiry-only is a real unit with no block media (e.g. empty removable). */
 	return inquiry ? 0 : -1;
+}
+
+int
+qgadisklengths(QgaDiskUnit *u, const QgaUint64 *length)
+{
+	QgaUint64 size, max;
+	QgaDiskPart *p;
+	int i, j, whole;
+
+	if(u==nil || u->npart<0 || u->npart>QgaDiskPartMax ||
+	   (u->npart!=0 && length==nil)) return -1;
+	max=((QgaUint64)1<<63)-1;
+	if(u->sectors>max || u->secsize>4294967295ULL) return -1;
+	whole=-1;
+	for(i=0; i<u->npart; i++){
+		p=&u->part[i];
+		if(memchr(p->name,0,sizeof p->name)==nil || !component(p->name) ||
+		   p->start>p->end || p->end>u->sectors || length[i]>max) return -1;
+		for(j=0; j<i; j++) if(strcmp(u->part[j].name,p->name)==0) return -1;
+		if(strcmp(p->name,"data")==0 && p->start==0 && p->end==u->sectors) whole=i;
+	}
+	size=u->secsize;
+	if(size==0 && u->sectors!=0){
+		if(whole<0 || length[whole]==0 || length[whole]%u->sectors!=0) return -1;
+		size=length[whole]/u->sectors;
+	}
+	if(size>4294967295ULL || (u->sectors!=0 && size==0) ||
+	   (size!=0 && u->sectors>max/size)) return -1;
+	for(i=0; i<u->npart; i++)
+		if(length[i]!=(u->part[i].end-u->part[i].start)*size) return -1;
+	u->secsize=size;
+	return 0;
 }
 
 static void
@@ -170,7 +213,9 @@ qgadiskemit(Jbuf *b, const char *name, const QgaDiskUnit *u, int *count)
 	   u->npart < 0 || u->npart > QgaDiskPartMax || *count < 0 || *count > QgaDiskRecordMax)
 		return -1;
 	max = ((QgaUint64)1 << 63)-1;
-	if(u->npart > 0 && (u->secsize == 0 || u->secsize > 4294967295ULL || u->sectors > max/u->secsize))
+	if(u->secsize > 4294967295ULL || u->sectors > max ||
+	   (u->sectors != 0 && u->secsize == 0) ||
+	   (u->secsize != 0 && u->sectors > max/u->secsize))
 		return -1;
 	whole = -1;
 	for(i = 0; i < u->npart; i++){

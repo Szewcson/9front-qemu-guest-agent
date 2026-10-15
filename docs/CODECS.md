@@ -85,7 +85,7 @@ for four UTF-8 bytes and the complete signed-int64 decimal representation.
 `tests/json-codec-test.c` passed 540 host assertions on Unicode boundaries,
 malformed scalars, exact capacities/guards, interior NUL, int64 extrema and
 nanosecond-scale values. The same fixture is part of native `mk test`, but
-this new reuse still needs actual native compilation/execution.
+these 540 checks also passed with the native compiler/libc in the local guest.
 Linux uses libc iconv with a private per-call descriptor, not locale mutation;
 this adapter is not installed or a guest dependency. GCC's analyzer models
 `iconv_open` allocation but not its `(iconv_t)-1` failure sentinel; only that

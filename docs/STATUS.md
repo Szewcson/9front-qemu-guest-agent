@@ -10,7 +10,7 @@ The userspace repository builds independently of the
 Linux tests passed all 11 QGA C suites and 54 Python methods, including the
 native-file/creator syscall mocks, load model and native-helper JSON boundaries.
 Post-split ASan/UBSan with leak checks and GCC `-fanalyzer` passed.
-The driver independently passed 15 C suites and 21 Python methods with the same
+The driver independently passed 15 C suites and 22 Python methods with the same
 sanitizer/analyzer checks.
 
 Current driver ThreadSanitizer attempts on three concurrency fixtures failed
@@ -18,16 +18,64 @@ runtime initialization with `unexpected memory mapping`. This is neither a
 detected code race nor a passing current TSan run. Earlier combined-tree TSan
 passes remain prior fixture evidence only.
 
-Native builds and VM tests have not been rerun after the split. The earlier
-combined checkout passed all 16 native C suites and a warning-free full PC64
-kernel link. Those results do not establish the revised independent mkfiles.
+## Current local native evidence
 
-An isolated local QEMU/TCG environment was prepared from the official
+An isolated local QEMU 10.0.13/TCG environment uses the official
 `9front-11952.amd64.qcow2.gz`; its 984 torrent pieces verified. It uses no NIC,
 shared directory or Drawterm export, only project-source tar snapshots on a
-read-only CD image. Serial boot began, but no completed native build/test result
-was obtained before this commit. Emulator packages, images and control scripts
-are local artifacts outside both repositories, not source deliverables.
+read-only CD image and explicit source-file updates through a private test QGA
+channel. Emulator packages/images/control scripts stay outside both repositories.
+No Proxmox VM or host configuration was changed.
+
+The independent daemon builds with native `6c -FTVw`/`6l` without warnings.
+All nine portable native suites passed, including libc base64, rune/integer
+boundaries and load estimation. Explicit native checks passed:
+
+- 21 file-guard checks: mounted-file create/round-trip and rejection of direct
+  devices and a mixed-device creation union without device/file side effects.
+- Sampler startup, three queries and stop request; real wire load queries also
+  returned zero and nonzero estimates. Exhaustive sampler failure/lifetime
+  injection is not implied by this normal-path test.
+- Exact descriptor keep-set cleanup with 80 extras, and native process checks
+  (144 and 146 assertions on successive runs; polling affects the count).
+- Duplex stream ping, six file operations and binary round-trip, and responsive
+  exec/status with one-shot reaping.
+- 63 read-only disk checks across six hard-disk/CD-ROM nodes. Native testing
+  exposed geometry-less IDE ATAPI ctl and changing diagnostic counters; geometry
+  now derives only from verified metadata and snapshots compare parsed inventory.
+- Startup helper ready/delayed/absent fixtures, using native rc and a private
+  overlay, without launching an actual service.
+- Explicit manual installation and native `man -n` rendering of qga9(8), its
+  qga9-start alias and the separate driver's vconsole(3), without formatter errors.
+
+Daemon SHA-1 identity: `b7f65621f020537536b3ef420e5820e3975e6727`
+(not an authenticity proof).
+
+The separate driver built nine native suites, 17 kernel-header objects and a
+warning-free checked-IRQ kernel. Real local virtio queries, synthetic binary
+files and all five exec smoke tests passed before and after forced device status
+reset, exact named-port removal/re-add and an out-of-range used-ring ID.
+Checked IRQ counters increased on each unchanged live context; recovery published
+new identities. Supplied-time and RTC-derived clock synchronization passed over
+virtio, with load queries still working after clock changes.
+
+The stock image ran `aux/timesync -rLa1000000`, whose local-time RTC interpretation
+overrode the agent's UTC RTC update by two hours. After stopping only that
+disposable guest's running timesync process, both setter modes passed immediately
+and five seconds later (within one second of host time). No persistent time-sync
+configuration or Proxmox policy was changed. See [9FRONT](9FRONT.md).
+
+Agent-triggered powerdown completed filesystem halt and emulator exit status 0.
+A second cold boot automatically selected the verified short FAT kernel name
+`9qgairq`, with no bootargs acknowledgement needed. Its repeated QGA powerdown
+produced QMP `SHUTDOWN` with `guest: true, reason: guest-shutdown`, no QGA success
+reply, and exit status 0. Both exits emitted a QEMU GLib timer diagnostic after
+halt; the first also emitted a guest `echo` write error. These diagnostics were
+retained, not silently treated as absent. The stopped qcow2 image check found no
+errors. Reboot and power-failure branches remain untested.
+
+These are local QEMU results, not new PVE results or proof of physical hardware,
+all failure paths or cache ordering.
 
 ## Prior native userspace evidence
 
@@ -44,8 +92,10 @@ Separately invoked tests verified:
 - Native libc base64 fixtures and 26 libjson incompatibility checks; see
   [CODECS](CODECS.md) for inspected source fingerprints and decisions.
 
-Omitted-time RTC synchronization and clock failure branches were mocked.
-Actual agent-initiated powerdown/reboot was not tested.
+At that earlier stage omitted-time RTC synchronization and clock failure
+branches were mocked, and agent-initiated powerdown/reboot was not tested.
+Current local evidence above supersedes only the successful omitted-time and
+powerdown paths, not clock/power failures or reboot.
 
 ## Prior real channel evidence
 
@@ -67,28 +117,28 @@ for hardware contracts, boot caveats and remaining gates.
 
 ## Open findings and release gates
 
-- Startup readiness: fixed locally with up to 30 one-second waits before one
-  launch, probing canonical #Y paths without opening data. Native rc fixtures
-  cover ready/delayed/absent endpoints but have not run; VM deployment is pending.
+- Startup readiness: bounded stat-only waits and native rc fixtures passed;
+  deployment/cold-start verification on the Proxmox VM is pending.
 - Rejected device creation: local private creator pins the parent and rejects
   final-parent unions before relative exclusive create; it no longer trusts a
   mixed-device MCREATE branch. The public-wire adapter passed 82 mock assertions
   and the creator 285 syscall-fixture checks. The actual native mixed-union and
-  leased-board fixture remains unrun. See [SECURITY](SECURITY.md).
+  leased-board path passed the 21-check fixture. See [SECURITY](SECURITY.md).
 - `guest-get-load`: implemented in `0.6.0-dev`, with 4580 host model/protocol
-  assertions. Private native sampler/lifecycle tests are prepared but unrun.
+  assertions, native sampler queries and actual virtio wire queries passed.
   The other 21 standard-union commands remain unsupported; see FEATURES.
 - Native manuals and explicit manual/helper install targets are prepared.
   Rune encoding/integer formatting reuse native libc; 540 codec-boundary host
-  assertions passed. Native codec compilation and manual rendering are pending.
-- The VM was confirmed offline by the operator on 2026-10-14. No new binary,
-  helper, kernel or boot configuration was deployed by this fix work.
-- Native post-split build/tests and VM integration remain unrerun.
-- PVE UI, full command conformance over virtio and real agent power actions.
+  assertions passed on both host and native libc. Native manual rendering passed.
+- The Proxmox VM was confirmed offline by the operator on 2026-10-14. No new
+  binary, helper, kernel or boot configuration was deployed there by this work.
+- Local post-split native builds/tests passed; Proxmox deployment remains pending.
+- PVE UI, full command conformance over virtio, reboot and power-failure paths.
 - Multiple interfaces/controllers, removable media, hotplug and native error,
   note/copy/allocator fault injection beyond normal I/O/access tests.
-- Checked interrupt routing/activation, live reset/fault/unplug and automatic
-  driver recovery plus safe userspace restart after actual owner retirement.
+- Basic checked IRQ, forced reset, invalid used ID and named-port recovery passed locally.
+  PCI-controller unplug, failed reset/MMIO, resource faults and exhaustive
+  recovery remain driver release gates. Restarting userspace is still explicit.
 - Full native kernel/cache-ordering/callback lifetime validation; host fixtures
   and sanitizers do not prove those properties.
 

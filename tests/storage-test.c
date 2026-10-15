@@ -134,7 +134,7 @@ parsechecks(QgaDiskUnit *u, char *input)
 		"inquiry disk\ngeometry 18014398509481984 512\n",
 		"inquiry disk\ngeometry 1 512\ngeometry 1 512\n",
 		"inquiry disk\ngeometry 1 512 garbage\n",
-		"inquiry disk\npart data 0 1\n", "inquiry disk\ngeometry 1 512\npart data 0\n",
+		"inquiry disk\npart fs 0 1\n", "inquiry disk\ngeometry 1 512\npart data 0\n",
 		"inquiry disk\ngeometry 1 512\npart data 0 1 extra\n",
 		"inquiry disk\ngeometry 1 512\npart data 1 0\n",
 		"inquiry disk\ngeometry 1 512\npart data 0 2\n",
@@ -188,6 +188,65 @@ parsechecks(QgaDiskUnit *u, char *input)
 	memmove(input, "inquiry disk\nconfig ", sizeof "inquiry disk\nconfig "-1);
 	input[QgaDiskTextMax-1] = '\n';
 	check(qgadiskparse(u, input, QgaDiskTextMax) == 0, "bounded long diagnostic line");
+}
+
+static void
+lengthchecks(QgaDiskUnit *u, char *out)
+{
+	const char optical[]="inquiry QEMU DVD-ROM\nconfig 85C0\npart data 0 100\npart track 10 90\n";
+	const char empty[]="inquiry empty optical\npart data 0 0\n";
+	QgaUint64 length[2];
+	QgaDiskUnit *other;
+	Jbuf b;
+	int i, count;
+	const char counters[]="inquiry QEMU HARDDISK\ngeometry 100 512\nirq 999 998\npart data 0 100\npart fs 10 90\npart empty 42 42\n";
+
+	other=malloc(sizeof *other); check(other!=nil,"semantic snapshot allocation");
+	check(qgadiskparse(u,good,sizeof good-1)==0 &&
+		qgadiskparse(other,counters,sizeof counters-1)==0 &&
+		memcmp(u,other,sizeof *u)==0,"live diagnostic counters do not change partition inventory");
+	other->part[1].end--;
+	check(memcmp(u,other,sizeof *u)!=0,"partition extent changes remain visible");
+	free(other);
+
+	check(qgadiskparse(u,optical,sizeof optical-1)==0 && u->sectors==100 && u->secsize==0,
+		"optical ctl lacks geometry, sector size unresolved");
+	count=0; jbinit(&b,out,QgaOutputMax);
+	check(qgadiskemit(&b,"sdD0",u,&count)<0 && count==0,"unresolved geometry cannot serialize");
+	length[0]=204800; length[1]=163840;
+	check(qgadisklengths(u,length)==0 && u->secsize==2048,"derive optical geometry from whole-data metadata");
+	count=0; jbinit(&b,out,QgaOutputMax);
+	check(qgadiskemit(&b,"sdD0",u,&count)==0 && count==2,"verified optical nodes serialize");
+	for(i=0; i<8; i++){
+		check(qgadiskparse(u,optical,sizeof optical-1)==0,"fresh optical failure fixture");
+		length[0]=204800; length[1]=163840;
+		switch(i){
+		case 0: length[0]++; break;
+		case 1: length[0]=0; break;
+		case 2: length[1]--; break;
+		case 3: length[0]=100*4294967296ULL; break;
+		case 4: length[0]=~(QgaUint64)0; break;
+		case 5: u->part[1].end=101; break;
+		case 6: strcpy(u->part[1].name,"data"); break;
+		case 7: strcpy(u->part[0].name,"narrow"); break;
+		}
+		check(qgadisklengths(u,length)<0 && u->secsize==0,"invalid metadata rejected without committing geometry");
+	}
+	check(qgadiskparse(u,empty,sizeof empty-1)==0,"empty optical partition");
+	length[0]=0;
+	check(qgadisklengths(u,length)==0 && u->secsize==0,"do not guess sector size for empty media");
+	count=0; jbinit(&b,out,QgaOutputMax);
+	check(qgadiskemit(&b,"sdD0",u,&count)==0 && count==0,"omit verified empty optical node");
+	check(qgadisklengths(nil,length)<0 && qgadisklengths(u,nil)<0,"length resolver nil inputs");
+	u->npart=QgaDiskPartMax+1;
+	check(qgadisklengths(u,length)<0,"length resolver structure bound");
+	check(qgadiskparse(u,good,sizeof good-1)==0,"known geometry length fixture");
+	{
+		QgaUint64 sizes[3]={51200,40960,0};
+		check(qgadisklengths(u,sizes)==0,"known geometry exact byte lengths");
+		sizes[1]++;
+		check(qgadisklengths(u,sizes)<0,"known geometry length mismatch");
+	}
 }
 
 static void
@@ -251,6 +310,7 @@ void main(void)
 	out = malloc(QgaOutputMax);
 	check(u != nil && d != nil && s != nil && input != nil && out != nil, "test allocation");
 	parsechecks(u, input);
+	lengthchecks(u, out);
 	emitchecks(u, out, d);
 	streamchecks(s, d, input);
 	free(out);

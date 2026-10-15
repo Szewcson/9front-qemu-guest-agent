@@ -1,7 +1,8 @@
 # Native 9front installation
 
 Prior native amd64 builds, userspace tests, installation and service startup
-passed. Native build/VM checks have not been rerun after the repository split.
+passed. The independent build and native suites now also passed in a separate
+local QEMU guest; this is not a new deployment on the Proxmox VM.
 See [STATUS](STATUS.md) for native, host-fixture and operator PVE evidence.
 
 ## Transport choice
@@ -201,8 +202,21 @@ Shutdown is off by default. On an appropriate test guest:
 `/bin/rc /bin/fshalt -r`. Only these fixed argv choices are reachable; no request
 string becomes shell code. `halt` without poweroff remains unsupported.
 Success means the isolated shutdown child was started, not that poweroff already
-completed. Actual flush/ACPI/reboot behavior has not been tested; watch the kernel
-console. See PROXMOX for a disruptive test and SECURITY for access limitations.
+completed. Local QEMU testing observed filesystem halt, a QMP guest-shutdown
+event and emulator exit status 0. Reboot, failure paths and updated Proxmox
+acceptance remain unverified; always watch the kernel console. See PROXMOX for
+a disruptive test and SECURITY for access limitations.
+
+## RTC policy
+
+QGA reads and writes UTC RTC seconds. Ensure other guest time-sync services
+agree: native [timesync(8)](https://github.com/9front/9front/blob/front/sys/man/8/timesync)
+`-L` instead assumes local-time RTC. The local release image's
+`TIMESYNCARGS=-rLa1000000` reproduced a two-hour clock change after successful
+QGA synchronization. Inspect the actual service/configuration before changing
+it; do not simply disable all synchronization. An independent timesync process
+is not stopped or reconfigured by the agent. Test both immediate and delayed
+readback after selecting a consistent UTC policy.
 
 ## Access control
 

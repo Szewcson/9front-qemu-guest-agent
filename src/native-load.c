@@ -29,7 +29,7 @@ runnable(int self)
 {
 	Dir *entries;
 	char path[64], text[512], *end;
-	long id;
+	vlong id;
 	int fd, n, i, count, scanned, result, state;
 	fd=open("#p",OREAD|OCEXEC); if(fd<0) return -1;
 	count=scanned=0; result=0;
@@ -37,10 +37,10 @@ runnable(int self)
 		for(i=0;i<n;i++){
 			if(++scanned>QgaLoadProcessesMax+16){ result=-1; break; }
 			if(entries[i].name[0]<'0' || entries[i].name[0]>'9') continue;
-			id=strtol(entries[i].name,&end,10);
+			id=strtoll(entries[i].name,&end,10);
 			if(*end!=0 || id<1 || id>2147483647L){ result=-1; break; }
 			if(id==self) continue; /* do not count the observer on every sample */
-			snprint(path,sizeof path,"#p/%ld/status",id);
+			snprint(path,sizeof path,"#p/%lld/status",id);
 			state=loadtext(path,text,sizeof text);
 			if(state==-2) continue; /* a process may exit during the snapshot */
 			if(state<0 || (state=qgaloadstate(text,state))<0){ result=-1; break; }

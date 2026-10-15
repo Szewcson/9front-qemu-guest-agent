@@ -21,7 +21,9 @@ escape a note group or ignore cancellation.
 Clock setting changes system time and UTC RTC on management channels.
 Shutdown is off by default; `-S` selects fixed `fshalt` or `fshalt -r` argv.
 Fork success gives no QGA success reply and does not prove flush or poweroff.
-Later shutdown failures are console-only; actual power semantics remain untested.
+Later shutdown failures are console-only. Local emulated powerdown passed with
+filesystem halt and a QMP guest-shutdown event; reboot, failure paths and the
+updated Proxmox deployment remain unverified.
 `halt`, password/key mutation, freeze/thaw and trim are unsupported.
 
 Stdio diagnostics enable file operations but disable exec, clock setting and
@@ -77,7 +79,8 @@ process. Close-on-remove posting and lease cleanup release the board/entry;
 there is no guessed-path deletion or permanent global descriptor publication.
 The public-wire adapter mock and creator syscall mock cover denial, bounds,
 collisions and resource cleanup. The actual namespace/leased-board regression
-is prepared but not executed. Host mocks do not establish native correctness.
+passed 21 checks on the local native guest. Host mocks alone do not establish
+namespace correctness; the live fixture still does not confine hostile servers.
 
 The agent does not itself rebind while serving, and exec supervisors copy its
 namespace. Readable-parent validation adds a restriction even if a fileserver
@@ -93,6 +96,10 @@ Clock state is local and bounds precede conversion/mutation. Both fixed devices
 are acquired before changing system time, which is updated before the RTC.
 System/RTC updates are not atomic; later failures explicitly report partial
 change. Other time-sync processes can override the result; no rollback is added.
+In particular, native timesync `-L` interprets RTC as local time and conflicts
+with this UTC policy. The local test image reproduced a two-hour correction
+after an initially successful setter reply. Coordinate the guest's time-sync
+policy rather than treating immediate readback as proof of persistent agreement.
 
 ## Load sampler
 
@@ -103,7 +110,8 @@ the original owner's opened status Chan; owner disappearance stops the sampler.
 Requests/replies have fixed framing and numeric bounds. Shutdown requests stop
 on the next sampling iteration, not a hard deadline. Kernel metadata I/O can
 still block, and a broken sampler can fail a query. This native lifecycle has
-not passed a real guest test yet.
+passed normal native startup/query/stop-request and real wire-query tests.
+This is not exhaustive helper failure, stop/join or owner-death validation.
 
 ## Processes and concurrency
 
@@ -160,15 +168,15 @@ Native validation/deployment and trust in mounted fileservers remain explicit.
 See [STATUS](STATUS.md) for the consolidated evidence.
 
 Post-split Linux C/Python regressions, ASan/UBSan/leaks and GCC analyzer passed.
-Prior native normal-path tests and operator PVE results passed. Native post-split
-checks have not been rerun. Current driver TSan attempts failed runtime
+Prior operator PVE results and new independent local-native builds, file guards,
+sampler/process/stream and virtio smoke tests passed. Current driver TSan attempts failed runtime
 initialization, not with a code race report; no current TSan pass is claimed.
 
 Fixtures do not prove native kernel IRQ/DMA/reset/unplug or callback lifetime
 safety. Incomplete input can occupy the parser until resynchronization;
 blocking device/fileserver I/O can stop progress. Bounds limit each request,
-not total traffic or wall-clock time. UI and actual power actions remain
-unverified.
+not total traffic or wall-clock time. UI, reboot and power-failure paths remain
+unverified; the local successful powerdown is not general power-safety proof.
 
 Drawterm exports require independent filesystem/process isolation, cleared
 credentials and narrowly selected source access. Drawterm `-r` alone is not a
