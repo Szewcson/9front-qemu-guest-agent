@@ -1,0 +1,50 @@
+--- a/sys/src/libjson/json.c
++++ b/sys/src/libjson/json.c
+@@ -270,27 +270,24 @@
+ 				}
+ 				if((e = mallocz(sizeof(*e), 1)) == nil)
+ 					goto abort;
++				*ln = e;
++				ln = &e->next;
+ 				e->name = strdup(l->buf);
+-				if(e->name == nil || lex(l) < 0){
+-					free(e);
++				if(e->name == nil || lex(l) < 0)
+ 					goto abort;
+-				}
+ 				if(l->t != ':'){
+ 					werrstr("json: syntax error, not colon");
+-					free(e);
+ 					goto abort;
+ 				}
+ 			}else{
+ 				if((e = mallocz(sizeof(*e), 1)) == nil)
+ 					goto abort;
++				*ln = e;
++				ln = &e->next;
+ 			}
+ 			e->val = jsonobj(l);
+-			if(e->val == nil){
+-				free(e);
++			if(e->val == nil)
+ 				goto abort;
+-			}
+-			*ln = e;
+-			ln = &e->next;
+ 			if(lex(l) < 0)
+ 				goto abort;
+ 			if(l->t == (obj ? '}' : ']'))
+--- a/sys/src/libjson/printjson.c
++++ b/sys/src/libjson/printjson.c
+@@ -67,8 +67,9 @@
+ 	r = fmtprint(f, "{\n");
+ 	for(jl = j->first; jl != nil; jl = jl->next){
+ 		for(i = 0; i < indent; i++)
+-			fmtprint(f, "\t");
+-		r += fmtprint(f, "\"%s\": ", jl->name);
++			r += fmtprint(f, "\t");
++		r += printstring(f, jl->name);
++		r += fmtprint(f, ": ");
+ 		r += printjson(f, jl->val, indent);
+ 		r += fmtprint(f, "%s\n", jl->next != nil ? "," : "");
+ 	}

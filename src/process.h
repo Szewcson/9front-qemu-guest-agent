@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: MIT */
 #ifndef QGA9_PROCESS_H
 #define QGA9_PROCESS_H
-#include "json.h"
+#include "qjson.h"
 enum {
 	QgaJobMax = 8, QgaArgMax = 32, QgaEnvMax = 32,
 	QgaExecTextMax = 4096, QgaExecPathMax = 1024,

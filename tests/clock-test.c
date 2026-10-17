@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: MIT */
 /* Clock ordering/partial failures and real core dispatch, without clock writes. */
 #include "../src/clock.h"
-#include "../src/json.h"
+#include "../src/qjson.h"
 #ifdef QGA_HOST_TEST
 #include <stdio.h>
 #endif

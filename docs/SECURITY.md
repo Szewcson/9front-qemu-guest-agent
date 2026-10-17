@@ -22,8 +22,10 @@ Clock setting changes system time and UTC RTC on management channels.
 Shutdown is off by default; `-S` selects fixed `fshalt` or `fshalt -r` argv.
 Fork success gives no QGA success reply and does not prove flush or poweroff.
 Later shutdown failures are console-only. Local emulated powerdown passed with
-filesystem halt and a QMP guest-shutdown event; reboot, failure paths and the
-updated Proxmox deployment remain unverified.
+filesystem halt and a QMP guest-shutdown event. The operator also supplied a
+normal PVE shutdown/start reaching the boot-launched agent; that is not an
+independent trace of its exact shutdown path or filesystem integrity. Warm
+reboot and failure paths remain unverified; see STATUS.
 `halt`, password/key mutation, freeze/thaw and trim are unsupported.
 
 Stdio diagnostics enable file operations but disable exec, clock setting and
@@ -31,7 +33,7 @@ shutdown. Namespace contents and launch identity determine accessible files.
 
 ## Memory and parser boundaries
 
-Each protocol instance has one checked allocation and one synchronous owner.
+Each protocol instance has one checked state allocation and one synchronous owner.
 Requests are capped at 8192 bytes, 512 tokens and depth 16; responses at 65536
 bytes. UTF-8, escapes, decoded duplicate keys and int64 syntax are checked.
 Integer lexemes preserve exact IDs. File/exec handlers reserve response space,
@@ -40,7 +42,12 @@ sticky and not sent.
 
 Writer buffers are borrowed for the synchronous call only. Short writes are
 handled; zero, negative or oversized successful counts fail the instance.
-Borrowed input is serialized before frame reuse. The API is not reentrant or
+The JSON adapter copies decoded text and exact number spelling into bounded
+instance-owned storage, then frees the temporary native tree before dispatch.
+No tree/input pointer escapes parsing. Its fixed self-referential document must
+not be copied or passed to jsonfree. Temporary parser allocation is capped at
+64 KiB requested bytes per request, excluding allocator metadata and time.
+Allocation failure rejects the document with no usable partial tokens. The API is not reentrant or
 safe for concurrent access to one instance.
 
 Native inventory reads cap text, fields, directories and records. Truncated,
@@ -49,10 +56,10 @@ can still block. CPU/routes/disks are snapshots, not atomic hotplug transactions
 disk metadata changes after validation or ABA changes remain possible.
 
 The base64 wrapper validates canonical syntax, exact output length and capacity
-before native libc conversion. Native libjson is not linked into the daemon;
-the evaluated API loses exact integers and lacks required parser/serialization
-semantics. [CODECS](CODECS.md) records scoped evidence, not a blanket judgment
-about all native helper reuse.
+before native libc conversion. The source checkout now links patched native
+libjson's bounded/exact API, not its legacy double-valued entry point. Parser and
+formatter contexts are per call; no global formatter registration or shared mutable
+policy is used. [CODECS](CODECS.md) records scoped evidence and remaining limits.
 
 ## Files and clocks
 
@@ -175,8 +182,10 @@ initialization, not with a code race report; no current TSan pass is claimed.
 Fixtures do not prove native kernel IRQ/DMA/reset/unplug or callback lifetime
 safety. Incomplete input can occupy the parser until resynchronization;
 blocking device/fileserver I/O can stop progress. Bounds limit each request,
-not total traffic or wall-clock time. UI, reboot and power-failure paths remain
-unverified; the local successful powerdown is not general power-safety proof.
+not total traffic or wall-clock time. The operator reported Summary-page IPs,
+normal PVE shutdown/start and supplied-time checks; broader UI, QGA reboot and
+power-failure paths remain unverified. Successful powerdown is not general
+power-safety proof.
 
 Drawterm exports require independent filesystem/process isolation, cleared
 credentials and narrowly selected source access. Drawterm `-r` alone is not a

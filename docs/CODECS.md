@@ -1,127 +1,112 @@
-# Codec reuse and native JSON evaluation
+# Native codec reuse
 
 ## Base64: native libc conversion
 
-Starting with `qga9-0.5.1-dev`, the native daemon calls stock 9front `enc64` and
-`dec64`. `src/base64.c` no longer implements byte packing/unpacking. It retains
-only protocol validation, output bounds and JSON-string framing.
+Starting with `qga9-0.5.1-dev`, the native daemon calls 9front `enc64`/`dec64`.
+`src/base64.c` retains protocol validation, capacity checks and JSON framing,
+not the byte-packing implementation.
 
-The deployed VM's `/sys/src/libc/port/u64.c` and `encode(2)` were inspected.
-The encoder emits RFC 4648 padding and a terminating NUL. The implementation's
-decoder skips nonalphabet characters, including padding, and can return a short
-result when capacity is exhausted. The encoder can also return a short result;
-the inspected manual's failure description is not sufficient for these cases.
-Both wrapper paths therefore check the exact expected result length.
+The inspected encoder emits padding and a terminating NUL. The decoder skips
+nonalphabet characters, including padding, and both routines can return a short
+result. The wrappers check complete canonical syntax, final-only padding,
+unused pad bits, destination capacity and the exact conversion result.
+Invalid input or inadequate decoding capacity leaves the destination untouched.
+Empty decoding needs no library call. Size arithmetic is checked before use.
 
-Before calling `dec64`, the wrapper checks the complete input: length divisible
-by four, standard alphabet, final-only padding, zero unused pad bits and enough
-destination capacity. Invalid input or inadequate capacity leaves the destination
-untouched. Empty decoding needs no library call. The expected byte count is
-computed without signed overflow. Input and output are borrowed and nonoverlapping.
+Encoding writes directly into the caller's response buffer; the closing quote
+replaces libc's terminating NUL. No allocation or shared mutable state is added.
+The protocol's transfer/capture limit remains 4096 bytes. The generic encoder
+also rejects input beyond the response budget before reading it.
 
-Encoding checks the entire available JSON output capacity before writing, then
-calls `enc64` directly into the caller-owned response buffer. The closing quote's
-slot temporarily holds libc's terminating NUL and is then overwritten with that
-quote. No codec allocation, temporary conversion buffer or shared mutable state
-is added. The protocol's file/input/capture limits remain
-4096 bytes. The generic encoder also rejects sizes beyond the 64 KiB response
-budget before doing size arithmetic or reading input.
+Linux uses existing libresolv routines through `tests/host-base64.c`, linked
+with `-lresolv`. This shim is not installed or a native guest dependency.
+The same fixture passed 428614 parameterized assertions on host and native
+implementations: RFC vectors, all one/two-byte inputs, lengths through 4096,
+canonical padding, overflow/capacity errors and destination guards. File/exec
+tests also exercise the wrapper. Host sanitizers do not instrument libresolv
+or native libc internals.
 
-Linux development builds use `tests/host-base64.c`, a small adapter to existing
-libresolv `b64_ntop`/`b64_pton` routines, linked with `-lresolv`. It is not compiled
-by native `mk` and is not a guest dependency. Linux sanitizer checks do not
-instrument the native libc or prove its behavior; the same fixtures run against
-the actual native implementation separately.
+## JSON: patched native libjson
 
-`tests/base64-test.c` passed 428614 assertions on both backends: RFC vectors,
-all 256 single bytes and all 65536 two-byte combinations, noncanonical pad bits,
-every length 0–4096, the generic output boundary, malformed alphabet/padding/NUL,
-capacity/overflow errors, destination guards and no writes on rejection.
-Counts include parameterized assertions, not that many distinct scenarios.
-Existing file and exec tests exercise the same wrapper in protocol handlers.
+The source checkout now uses the [native patch series](../patches/libjson/README.md).
+`src/json.c` is a QGA policy/storage adapter, not a grammar parser. Native libjson
+owns JSON lexing, Unicode/escape validation, duplicate decoded-key rejection,
+exact number spelling, int64 conversion and string/tree formatting. No second
+parser remains as a pre-validator. Native rune primitives are reused by the
+patched library. Integer output uses native bounded `snprint`, not `double`.
 
-## JSON: keep the bounded exact-integer parser
+The deployed Proxmox binary is still the preceding build. This change has not
+replaced system headers, archives, manuals, agent binaries or startup hooks.
+The library patches have not been submitted or accepted upstream.
 
-The VM's `/sys/include/json.h`, `/sys/src/libjson/json.c`, `printjson.c` and
-`json(2)` were inspected. An explicitly invoked development comparison links
-stock libjson alongside the project's parser:
+Why a library patch was necessary:
 
-```rc
-mk qga9-native-json-eval
-./qga9-native-json-eval
-```
+| Stock API limitation | Opt-in native extension |
+| --- | --- |
+| Numbers stored as `double`, rounding large IDs/timestamps | Exact number text and range-checked integer conversion |
+| No parse resource limits | Per-call depth, value/key-node and allocation budgets |
+| Permissive parsing/duplicate keys | Strict number/UTF-8/escape grammar and decoded-key rejection |
+| C-string-only strings/keys | Counted strings and keys, including escaped NUL |
+| Unescaped object keys in printer | Shared native escaping and bounded compact/ASCII formatting |
 
-Its 26 native checks passed, confirming these incompatibilities:
+The original `JSON`/`JSONEl` layouts, enum values, positional initializers and
+legacy entry points remain available. Only opt-in callers receive the new types.
+Legacy `jsonparse` remains permissive, unbounded and double-valued; QGA never
+uses it for input. The old comparison fixture is historical, not a current
+acceptance test for a library whose escaping behavior is intentionally fixed.
 
-| Requirement | Inspected native libjson | Decision |
-| --- | --- | --- |
-| Exact QGA int64 values and arbitrary numeric transaction IDs | `JSONNumber` stores `double`; adjacent positive/negative values above 2^53, near signed-int64 maximum and at epoch-nanosecond scale compare equal | Preserve integer lexemes and checked int64 conversion |
-| Duplicate decoded-key rejection | A duplicate-key object is accepted and retained as two linked-list entries | Keep strict key validation |
-| Fixed depth/token/resource limits | Recursive tree allocation has no caller-supplied limits; the bounded comparison accepts 17 nested arrays rejected by qga9 | Keep 8192-byte requests, 512 tokens and depth 16 |
-| Correct arbitrary object-key serialization | `printobject` inserts key text using `%s`, without escaping; a valid key containing a quote produces invalid JSON | Keep the checked ASCII/Unicode serializer |
+### Ownership and bounds
 
-These are integration blockers, not claims of a newly assigned CVE or a complete
-security audit of libjson. The comparison uses small bounded fixtures, never
-unbounded recursion or a float-to-int64 cast outside its representable range.
-Every successful native tree and temporary string is freed.
+Requests remain limited to 8192 bytes, 512 value/key tokens and depth 16. Native
+parser allocations have a separate 64 KiB cumulative-request budget, excluding
+allocator metadata; failure rejects the request. The response/test entry point
+accepts 64 KiB and uses a 256 KiB parse-allocation budget. These are not CPU or
+wall-clock limits.
 
-Casting a `double` back to int64 cannot recover lost bits. Wrapping libjson with
-our full parser to recover original number lexemes and enforce the same bounds
-would keep both parsers, add allocation/maintenance cost and remove little code.
-Therefore libjson is **not linked into the daemon**. A future migration needs an
-upstream exact-number/lexeme API, resource limits, duplicate-key and strict Unicode
-handling, and a correct bounded serializer, with the existing regression suite
-retained. No upstream library files were modified by this evaluation.
+The adapter flattens the temporary native tree into document-owned fixed
+token/text storage, then frees the native tree before returning. Input may be
+reused immediately; no heap or borrowed-input lifetime crosses dispatch.
+`Jdoc` contains self-referential borrowed native views: do not copy it or call
+`jsonfree` on its embedded nodes. Reparse safely replaces its previous contents.
+Memory use per document is larger than the former token-only representation;
+it is bounded and avoids retained per-request allocations.
 
-## Additional native libc reuse
+String consumers reject interior NUL rather than truncating paths/arguments.
+Transaction IDs retain complete counted keys/strings and arbitrary numeric
+spelling, including exponents outside floating-point range. Formatting uses
+native `jsonfmt` with an instance-owned bounded Fmt; it needs no global `%J`
+registration. Equivalent native short control escapes, such as `\n` instead of
+`\u000a`, are valid wire output. CRLF framing and ASCII-only output are unchanged.
+Overflow or invalid output is sticky and never transmitted.
 
-The JSON decoder retains strict scalar/escape/NUL and capacity checks but now
-uses native `runetochar` for validated scalar encoding. Integer output uses
-bounded native `snprint`, preserving signed 64-bit values without floating
-point. Inventory unsigned formatting also uses the native formatter.
-No parser limits or authorization are relaxed. Fixed stack buffers are sized
-for four UTF-8 bytes and the complete signed-int64 decimal representation.
+### Build and verification
 
-`tests/json-codec-test.c` passed 540 host assertions on Unicode boundaries,
-malformed scalars, exact capacities/guards, interior NUL, int64 extrema and
-nanosecond-scale values. The same fixture is part of native `mk test`, but
-these 540 checks also passed with the native compiler/libc in the local guest.
-Linux uses libc iconv with a private per-call descriptor, not locale mutation;
-this adapter is not installed or a guest dependency. GCC's analyzer models
-`iconv_open` allocation but not its `(iconv_t)-1` failure sentinel; only that
-sentinel-return warning is locally suppressed in the host adapter. Successful
-descriptors are always closed. Sanitizers still exercise the unsuppressed code.
+See the patch README for pinned-source preparation, standalone library tests
+and private native archive creation. Both QGA test backends compile/link the
+patched native parser/formatter. Linux also compiles the actual native `rune.c`,
+with small allocation/Fmt/OS shims; it has no handwritten UTF-8 codec. Tests do
+not download sources or install a system library automatically.
+
+The adapter passed all 12 host C suites and 54 Python methods, ASan/UBSan/leak
+checks and GCC analyzer. Its new fixture checks allocation failure at every
+prefix, zero retained native allocations, input-buffer destruction, maximum-size
+number storage/output, exact token/capacity boundaries and NUL-key isolation.
+Native evidence and rollout gates are recorded in [STATUS](STATUS.md).
 
 ## Scoped safety review
 
-The review covered memory, thread and race safety, parser/overflow/truncation
-patterns, and privileged access paths. No unresolved finding was identified in
-the changed wrapper: lengths precede reads/writes, result sizes are checked,
-buffers stay caller-owned and the synchronous single-owner API is unchanged.
-No file/exec/shutdown authorization or transport setting was broadened.
-The libjson incompatibilities above are avoided by not integrating it.
+The review covered memory/thread/race safety, parser ambiguity, overflow and
+privileged access paths. Native allocations are checked and freed on success
+and error; copies and formatter writes are capacity-checked. Mutable parser and
+formatter state is per call. A protocol/document instance still has one owner;
+shared-tree mutation or concurrent use of an instance is not supported.
+No file/exec/clock/shutdown authorization or transport policy was broadened.
 
-Residual limits: this is not a comprehensive audit of either platform library;
-Linux sanitizers do not instrument their internals. Actual native guard and
-protocol tests supplement those checks. The operator subsequently supplied
-successful PVE ping/info, file round-trip and all five exec smoke tests on
-`qga9-0.5.1-dev`. This passes that codec host-regression gate on operator
-evidence, not an independent developer host session. The run did not opt into
-clock mutation and is not a new live clock-setting test.
+This is not complete platform/library certification. The host Fmt shim is not
+native libc, legacy parser behavior is not comprehensively hardened, and current
+ThreadSanitizer failed runtime initialization rather than establishing race
+freedom. Native builds and real native buffer tests supplement host checks.
 
-Upstream source references: [9front base64](https://github.com/9front/9front/blob/front/sys/src/libc/port/u64.c),
-[JSON API](https://github.com/9front/9front/blob/front/sys/include/json.h),
-[JSON parser](https://github.com/9front/9front/blob/front/sys/src/libjson/json.c),
-[JSON formatter](https://github.com/9front/9front/blob/front/sys/src/libjson/printjson.c).
-Evidence above refers to the inspected VM sources and actual native tests, not
-an assumption that a moving upstream branch exactly matches the VM.
-
-Inspected source fingerprints (`sha1sum`, identity records, not authenticity
-proofs), captured on 2026-10-11:
-
-```text
-d15268a1cd0d5e0f670ee4e400d9a37f01c47dae  /sys/src/libc/port/u64.c
-fceb02d8c32b723a85f24acfb54d5dfe11c1b3e5  /sys/include/json.h
-ca9bd51fe4e64db712e1a488ebd14fb397446446  /sys/src/libjson/json.c
-17267d9daec98531da7c605a6bccf26cf57a2334  /sys/src/libjson/printjson.c
-```
+Pinned source, complete patch interfaces, reproduction commands and test limits
+are in [the patch README](../patches/libjson/README.md). Baseline checksums are
+identity checks, not signed-source authenticity proofs.

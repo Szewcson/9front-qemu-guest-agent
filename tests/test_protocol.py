@@ -45,7 +45,7 @@ class ProtocolTests(unittest.TestCase):
 
     def test_info(self):
         info = self.run_stream(request("guest-info"))[1][0]["return"]
-        self.assertEqual(info["version"], "qga9-0.6.0-dev")
+        self.assertEqual(info["version"], "qga9-0.6.1-dev")
         supported = info["supported_commands"]
         self.assertEqual({c["name"] for c in supported}, {
             "guest-sync", "guest-sync-delimited", "guest-ping", "guest-info",

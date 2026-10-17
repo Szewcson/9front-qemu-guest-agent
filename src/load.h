@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: MIT */
 #ifndef QGA9_LOAD_H
 #define QGA9_LOAD_H
-#include "json.h"
+#include "qjson.h"
 enum { QgaLoadProcessesMax=4096, QgaLoadScale=1000000, QgaLoadWire=25 };
 typedef struct QgaLoad QgaLoad;
 struct QgaLoad { QgaUint64 average[3], last; int initialized, pending; };

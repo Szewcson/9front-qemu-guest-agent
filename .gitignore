@@ -12,7 +12,7 @@
 /qga9-native-fd-test
 /qga9-native-files-guard-test
 /qga9-base64-test
-/qga9-native-json-eval
+/qga9-json-adapter-test
 /*.6
 /*.8
 /*.5
@@ -23,3 +23,4 @@ __pycache__/
 qga9-json-codec-test
 qga9-load-test
 /qga9-native-load-test
+/qga9-native-fsinfo-provenance-test

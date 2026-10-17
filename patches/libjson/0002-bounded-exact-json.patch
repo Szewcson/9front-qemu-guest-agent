@@ -1,0 +1,948 @@
+--- a/sys/include/json.h
++++ b/sys/include/json.h
+@@ -3,6 +3,9 @@
+ 
+ typedef struct JSONEl JSONEl;
+ typedef struct JSON JSON;
++typedef struct JSONText JSONText;
++typedef struct JSONLimits JSONLimits;
++typedef struct JSONElN JSONElN;
+ 
+ #pragma varargck type "J" JSON*
+ 
+@@ -13,6 +16,24 @@
+ 	JSONString,
+ 	JSONArray,
+ 	JSONObject,
++	JSONNumberText,
++	JSONStringN,
++	JSONObjectN,
++
++	JSONMaxDepth = 256,
++	JSONCompact = 1,
++	JSONAscii = 2,
++};
++
++struct JSONText {
++	ulong n;
++	char *s;
++};
++
++struct JSONLimits {
++	ulong maxdepth;
++	ulong maxnodes;
++	ulong maxbytes;
+ };
+ 
+ struct JSONEl {
+@@ -21,6 +42,11 @@
+ 	JSONEl *next;
+ };
+ 
++struct JSONElN {
++	JSONEl el;
++	ulong n;
++};
++
+ struct JSON
+ {
+ 	int t;
+@@ -28,6 +54,7 @@
+ 		double n;
+ 		char *s;
+ 		JSONEl *first;
++		JSONText *text;
+ 	};
+ };
+ 
+@@ -37,3 +64,10 @@
+ char*	jsonstr(JSON *);
+ int	JSONfmt(Fmt*);
+ void	JSONfmtinstall(void);
++JSON*	jsonparsebounded(char *, ulong, JSONLimits *);
++int	jsonint64(JSON *, vlong *);
++char*	jsonstring(JSON *, ulong *);
++char*	jsonkey(JSON *, JSONEl *, ulong *);
++JSON*	jsonbynameN(JSON *, char *, ulong);
++long	jsonformat(char *, ulong, JSON *, int);
++int	jsonfmt(Fmt *, JSON *, int);
+--- a/sys/src/libjson/json.c
++++ b/sys/src/libjson/json.c
+@@ -22,22 +22,99 @@
+ 	double n;
+ 	char *buf;
+ 	Rune peeked;
++	char *end;
++	ulong len, used, nodes;
++	int bounded, bad;
++	JSONLimits limits;
+ };
+ 
++static void*
++jsonalloc(Lex *l, ulong n)
++{
++	void *p;
++
++	if(l->bounded && n > l->limits.maxbytes-l->used){
++		werrstr("json: allocation limit");
++		return nil;
++	}
++	p = mallocz(n, 1);
++	if(p != nil && l->bounded)
++		l->used += n;
++	return p;
++}
++
++static char*
++jsoncopy(Lex *l, char *s, ulong n)
++{
++	char *p;
++
++	if(n == (ulong)-1)
++		return nil;
++	p = jsonalloc(l, n+1);
++	if(p != nil)
++		memmove(p, s, n);
++	return p;
++}
++
++static JSONText*
++jsontext(Lex *l, char *s, ulong n)
++{
++	JSONText *t;
++
++	if(n > (ulong)-1-sizeof(*t)-1)
++		return nil;
++	t = jsonalloc(l, sizeof(*t)+n+1);
++	if(t != nil){
++		t->n = n;
++		t->s = (char*)(t+1);
++		memmove(t->s, s, n);
++	}
++	return t;
++}
++
++static int
++jsonnode(Lex *l)
++{
++	if(l->bounded){
++		if(l->nodes == l->limits.maxnodes){
++			werrstr("json: node limit");
++			return -1;
++		}
++		l->nodes++;
++	}
++	return 0;
++}
++
+ static Rune
+ getch(Lex *l)
+ {
+ 	Rune r;
++	int n;
+ 
+ 	if(l->peeked){
+ 		r = l->peeked;
+ 		l->peeked = 0;
+ 		return r;
+ 	}
++	if(l->bounded){
++		if(l->s == l->end)
++			return 0;
++		if(*l->s == 0 || !fullrune(l->s, l->end-l->s))
++			goto bad;
++		n = chartorune(&r, l->s);
++		if((r == Runeerror && n == 1) || (r >= 0xD800 && r <= 0xDFFF))
++			goto bad;
++		l->s += n;
++		return r;
++	}
+ 	if(l->s[0] == '\0')
+ 		return 0;
+ 	l->s += chartorune(&r, l->s);
+ 	return r;
++bad:
++	l->bad = 1;
++	werrstr("json: invalid UTF-8 or NUL byte");
++	return 0;
+ }
+ 
+ static Rune
+@@ -86,6 +163,101 @@
+ }
+ 
+ static int
++hexrune(Lex *l, Rune *r)
++{
++	Rune c;
++	int i;
++
++	*r = 0;
++	for(i = 0; i < 4; i++){
++		c = getch(l);
++		if(c >= '0' && c <= '9') c -= '0';
++		else if(c >= 'a' && c <= 'f') c -= 'a'-10;
++		else if(c >= 'A' && c <= 'F') c -= 'A'-10;
++		else return -1;
++		*r = (*r << 4) | c;
++	}
++	return 0;
++}
++
++static int
++unicode(Lex *l, Rune *r)
++{
++	Rune low;
++
++	if(hexrune(l, r) < 0)
++		return -1;
++	if(*r >= 0xD800 && *r <= 0xDBFF){
++		if(getch(l) != '\\' || getch(l) != 'u' || hexrune(l, &low) < 0 ||
++		   low < 0xDC00 || low > 0xDFFF)
++			return -1;
++		*r = 0x10000 + ((*r-0xD800)<<10) + low-0xDC00;
++	}else if(*r >= 0xDC00 && *r <= 0xDFFF)
++		return -1;
++	return 0;
++}
++
++static int
++digit(char *p, char *end)
++{
++	return p < end && *p >= '0' && *p <= '9';
++}
++
++static char*
++numberend(char *start, char *end)
++{
++	char *p;
++
++	p = start;
++	if(p == end) return nil;
++	if(*p == '-') p++;
++	if(!digit(p, end)) return nil;
++	if(*p++ != '0')
++		while(digit(p, end)) p++;
++	if(p < end && *p == '.'){
++		p++;
++		if(!digit(p, end)) return nil;
++		while(digit(p, end)) p++;
++	}
++	if(p < end && (*p == 'e' || *p == 'E')){
++		p++;
++		if(p < end && (*p == '+' || *p == '-')) p++;
++		if(!digit(p, end)) return nil;
++		while(digit(p, end)) p++;
++	}
++	return p;
++}
++
++/* Private shared grammar check for programmatically constructed number text. */
++int
++_jsonnumbervalid(char *s)
++{
++	char *end;
++
++	if(s == nil) return 0;
++	end = s+strlen(s);
++	return numberend(s, end) == end;
++}
++
++static int
++number(Lex *l)
++{
++	char *p, *start;
++
++	start = l->s-1;
++	if((p = numberend(start, l->end)) == nil){
++		werrstr("json: invalid number");
++		return -1;
++	}
++	l->len = p-start;
++	memmove(l->buf, start, l->len);
++	l->buf[l->len] = 0;
++	l->s = p;
++	l->t = TNUM;
++	return 0;
++}
++
++static int
+ lex(Lex *l)
+ {
+ 	Rune r, r2;
+@@ -95,6 +267,8 @@
+ 
+ 	peeknonspace(l);
+ 	r = getch(l);
++	if(l->bad)
++		return -1;
+ 	if(r == 0 || r == '{' || r == '[' || r == ']' || r == '}' || r == ':' || r == ','){
+ 		l->t = r;
+ 		return 0;
+@@ -126,6 +300,8 @@
+ 		return 0;
+ 	}
+ 	if(isdigit(r) || r == '-'){
++		if(l->bounded)
++			return number(l);
+ 		l->n = strtod(l->s-1, &l->s);
+ 		l->t = TNUM;
+ 		return 0;
+@@ -151,6 +327,13 @@
+ 					r = '\r';
+ 					break;
+ 				case 'u':
++					if(l->bounded){
++						if(unicode(l, &r) < 0){
++							werrstr("json: invalid Unicode escape");
++							return -1;
++						}
++						break;
++					}
+ 					r = 0;
+ 					for(i = 0; i < 4; i++){
+ 						if(!isxdigit(peekch(l)))
+@@ -194,6 +377,7 @@
+ 			}
+ 		}
+ 		*t = 0;
++		l->len = t-l->buf;
+ 		l->t = TSTRING;
+ 		return 0;
+ 	}
+@@ -202,14 +386,18 @@
+ }
+ 
+ static JSON*
+-jsonobj(Lex *l)
++jsonobj(Lex *l, ulong depth)
+ {
+ 	JSON *j;
+-	JSONEl *e;
++	JSONEl *e, *prev;
+ 	JSONEl **ln;
+ 	int obj;
+ 
+-	if((j = mallocz(sizeof(*j), 1)) == nil)
++	if(l->bounded && depth > l->limits.maxdepth){
++		werrstr("json: depth limit");
++		return nil;
++	}
++	if(jsonnode(l) < 0 || (j = jsonalloc(l, sizeof(*j))) == nil)
+ 		return nil;
+ 
+ 	if(lex(l) < 0){
+@@ -233,11 +421,23 @@
+ 		j->n = 0;
+ 		break;
+ 	case TSTRING:
++		if(l->bounded){
++			j->t = JSONStringN;
++			if((j->text = jsontext(l, l->buf, l->len)) == nil)
++				goto error;
++			break;
++		}
+ 		j->t = JSONString;
+ 		if((j->s = strdup(l->buf)) == nil)
+ 			goto error;
+ 		break;
+ 	case TNUM:
++		if(l->bounded){
++			j->t = JSONNumberText;
++			if((j->s = jsoncopy(l, l->buf, l->len)) == nil)
++				goto error;
++			break;
++		}
+ 		j->t = JSONNumber;
+ 		j->n = l->n;
+ 		break;
+@@ -246,7 +446,7 @@
+ 		obj = l->t == '{';
+ 		ln = &j->first;
+ 		if(obj){
+-			j->t = JSONObject;
++			j->t = l->bounded ? JSONObjectN : JSONObject;
+ 			if(lex(l) < 0)
+ 				goto abort;
+ 			if(l->t == '}')
+@@ -268,11 +468,22 @@
+ 					werrstr("json: syntax error, not string");
+ 					goto abort;
+ 				}
+-				if((e = mallocz(sizeof(*e), 1)) == nil)
++				if(jsonnode(l) < 0 || (e = jsonalloc(l, l->bounded ? sizeof(JSONElN) : sizeof(*e))) == nil)
+ 					goto abort;
+ 				*ln = e;
+ 				ln = &e->next;
+-				e->name = strdup(l->buf);
++				if(l->bounded){
++					e->name = jsoncopy(l, l->buf, l->len);
++					if(e->name == nil) goto abort;
++					((JSONElN*)e)->n = l->len;
++					for(prev = j->first; prev != e; prev = prev->next)
++						if(((JSONElN*)prev)->n == l->len &&
++						   memcmp(prev->name, e->name, l->len) == 0){
++							werrstr("json: duplicate key");
++							goto abort;
++						}
++				}else
++					e->name = strdup(l->buf);
+ 				if(e->name == nil || lex(l) < 0)
+ 					goto abort;
+ 				if(l->t != ':'){
+@@ -280,12 +491,12 @@
+ 					goto abort;
+ 				}
+ 			}else{
+-				if((e = mallocz(sizeof(*e), 1)) == nil)
++				if((e = jsonalloc(l, sizeof(*e))) == nil)
+ 					goto abort;
+ 				*ln = e;
+ 				ln = &e->next;
+ 			}
+-			e->val = jsonobj(l);
++			e->val = jsonobj(l, depth+1);
+ 			if(e->val == nil)
+ 				goto abort;
+ 			if(lex(l) < 0)
+@@ -323,7 +534,7 @@
+ 	if((l.buf = mallocz(l.slen+UTFmax+1, 1)) == nil)
+ 		return nil;
+ 
+-	j = jsonobj(&l);
++	j = jsonobj(&l, 0);
+ 	free(l.buf);
+ 
+ 	if(peeknonspace(&l) != 0){
+@@ -335,6 +546,38 @@
+ 	return j;
+ }
+ 
++JSON*
++jsonparsebounded(char *s, ulong n, JSONLimits *limits)
++{
++	Lex l;
++	JSON *j;
++	Rune end;
++
++	if(s == nil || limits == nil || n > 0x7FFFFFFF-UTFmax-1 ||
++	   limits->maxdepth > JSONMaxDepth || limits->maxnodes == 0 ||
++	   limits->maxbytes < n+UTFmax+1){
++		werrstr("json: invalid limits or input length");
++		return nil;
++	}
++	memset(&l, 0, sizeof l);
++	l.s = s;
++	l.end = s+n;
++	l.slen = n+1;
++	l.bounded = 1;
++	l.limits = *limits;
++	if((l.buf = jsonalloc(&l, n+UTFmax+1)) == nil)
++		return nil;
++	j = jsonobj(&l, 0);
++	end = peeknonspace(&l);
++	free(l.buf);
++	if(l.bad || end != 0){
++		jsonfree(j);
++		werrstr("json: invalid or trailing data");
++		return nil;
++	}
++	return j;
++}
++
+ void
+ jsonfree(JSON *j)
+ {
+@@ -343,11 +586,14 @@
+ 	if(j == nil)
+ 		return;
+ 	switch(j->t){
+-	case JSONString:
++	case JSONStringN:
++		free(j->text);
++		break;
++	case JSONString: case JSONNumberText:
+ 		if(j->s)
+ 			free(j->s);
+ 		break;
+-	case JSONArray: case JSONObject:
++	case JSONArray: case JSONObject: case JSONObjectN:
+ 		for(e = j->first; e != nil; e = f){
+ 			if(e->name)
+ 				free(e->name);
+@@ -362,27 +608,104 @@
+ JSON *
+ jsonbyname(JSON *j, char *n)
+ {
++	if(n == nil){
++		werrstr("json: nil key");
++		return nil;
++	}
++	return jsonbynameN(j, n, strlen(n));
++}
++
++JSON*
++jsonbynameN(JSON *j, char *n, ulong size)
++{
+ 	JSONEl *e;
++	char *key;
++	ulong len;
+ 	
+-	if(j->t != JSONObject){
++	if(j == nil || n == nil || (j->t != JSONObject && j->t != JSONObjectN)){
+ 		werrstr("not an object");
+ 		return nil;
+ 	}
+-	for(e = j->first; e != nil; e = e->next)
+-		if(strcmp(e->name, n) == 0)
++	for(e = j->first; e != nil; e = e->next){
++		key = jsonkey(j, e, &len);
++		if(key != nil && len == size && memcmp(key, n, len) == 0)
+ 			return e->val;
+-	werrstr("key '%s' not found", n);
++	}
++	werrstr("json: key not found");
+ 	return nil;
+ }
+ 
++char*
++jsonkey(JSON *j, JSONEl *e, ulong *n)
++{
++	if(j == nil || e == nil || n == nil || e->name == nil ||
++	   (j->t != JSONObject && j->t != JSONObjectN)){
++		werrstr("json: not an object key");
++		return nil;
++	}
++	*n = j->t == JSONObjectN ? ((JSONElN*)e)->n : strlen(e->name);
++	return e->name;
++}
++
+ char *
+ jsonstr(JSON *j)
+ {
+ 	if(j == nil)
+ 		return nil;
++	if(j->t == JSONStringN){
++		if(j->text == nil) return nil;
++		if(memchr(j->text->s, 0, j->text->n) == nil)
++			return j->text->s;
++		werrstr("json: string contains NUL");
++		return nil;
++	}
+ 	if(j->t != JSONString){
+ 		werrstr("not a string");
+ 		return nil;
+ 	}
+ 	return j->s;
+ }
++
++char*
++jsonstring(JSON *j, ulong *n)
++{
++	if(j == nil || n == nil || (j->t != JSONString && j->t != JSONStringN)){
++		werrstr("json: not a string");
++		return nil;
++	}
++	if(j->t == JSONStringN){
++		if(j->text == nil) return nil;
++		*n = j->text->n;
++		return j->text->s;
++	}
++	*n = strlen(j->s);
++	return j->s;
++}
++
++int
++jsonint64(JSON *j, vlong *out)
++{
++	uvlong v, limit;
++	char *s;
++	int negative, digit;
++
++	if(j == nil || out == nil || j->t != JSONNumberText || j->s == nil)
++		goto bad;
++	s = j->s;
++	negative = *s == '-';
++	if(negative) s++;
++	limit = 0x7FFFFFFFFFFFFFFFULL;
++	if(negative) limit++;
++	v = 0;
++	if(*s == 0 || (*s == '0' && s[1] != 0)) goto bad;
++	for(; *s; s++){
++		digit = *s-'0';
++		if(digit < 0 || digit > 9 || v > (limit-digit)/10) goto bad;
++		v = v*10 + digit;
++	}
++	*out = negative && v != 0 ? -(vlong)(v-1)-1 : (vlong)v;
++	return 0;
++bad:
++	werrstr("json: not an exact signed 64-bit integer");
++	return -1;
++}
+--- a/sys/src/libjson/printjson.c
++++ b/sys/src/libjson/printjson.c
+@@ -2,116 +2,121 @@
+ #include <libc.h>
+ #include <json.h>
+ 
+-static int printjson(Fmt*, JSON*, int);
+-static int printarray(Fmt*, JSON*, int);
+-static int printobject(Fmt*, JSON*, int);
++static int printjson(Fmt*, JSON*, int, int);
++int _jsonnumbervalid(char*);
+ 
+ static int
+-printstring(Fmt *f, char *s)
++printstring(Fmt *f, char *s, ulong n, int flags)
+ {
+ 	Rune r;
+-	int n;
++	int k;
+ 
+-	n = fmtstrcpy(f, "\"");
+-	while(*s){
+-		s += chartorune(&r, s);
++	if(s == nil || fmtstrcpy(f, "\"") < 0)
++		return -1;
++	while(n != 0){
++		if(!fullrune(s, n)) return -1;
++		k = chartorune(&r, s);
++		if((r == Runeerror && k == 1) || (r >= 0xD800 && r <= 0xDFFF))
++			return -1;
++		s += k;
++		n -= k;
+ 		switch(r){
+-		case '\\':	n += fmtstrcpy(f, "\\\\");	break;
+-		case '\f':	n += fmtstrcpy(f, "\\f");	break;
+-		case '\b':	n += fmtstrcpy(f, "\\b");	break;
+-		case '\n':	n += fmtstrcpy(f, "\\n");	break;
+-		case '\r':	n += fmtstrcpy(f, "\\r");	break;
+-		case '\"':	n += fmtstrcpy(f, "\\\"");	break;
++		case '\\': k = fmtstrcpy(f, "\\\\"); break;
++		case '\f': k = fmtstrcpy(f, "\\f"); break;
++		case '\b': k = fmtstrcpy(f, "\\b"); break;
++		case '\n': k = fmtstrcpy(f, "\\n"); break;
++		case '\r': k = fmtstrcpy(f, "\\r"); break;
++		case '"': k = fmtstrcpy(f, "\\\""); break;
+ 		default:
+-			if(r < 0x20)
+-				n += fmtprint(f, "\\u%04x", r);
+-			else
+-				n += fmtrune(f, r);
++			if(r < 0x20 || ((flags & JSONAscii) && r >= 0x7F)){
++				if(r > 0xFFFF){
++					r -= 0x10000;
++					if(fmtprint(f, "\\u%04x", 0xD800+(r>>10)) < 0)
++						return -1;
++					r = 0xDC00+(r&1023);
++				}
++				k = fmtprint(f, "\\u%04x", r);
++			}else
++				k = fmtrune(f, r);
+ 		}
++		if(k < 0) return -1;
+ 	}
+-	n += fmtstrcpy(f, "\"");
+-	return n;
++	return fmtstrcpy(f, "\"") < 0 ? -1 : 0;
+ }
+ 
+ static int
+-printarray(Fmt *f, JSON *j, int indent)
++printcontainer(Fmt *f, JSON *j, int indent, int flags)
+ {
+-	JSONEl *jl;
+-	int i, r;
+-
+-	if(j->first == nil){
+-		return fmtprint(f, "[]");
+-	}
+-	r = fmtprint(f, "[\n");
+-	for(jl = j->first; jl != nil; jl = jl->next){
+-		for(i = 0; i < indent; i++)
+-			r += fmtprint(f, "\t");
+-		r += printjson(f, jl->val, indent);
+-		r += fmtprint(f, "%s\n", jl->next != nil ? "," : "");
+-	}
+-	for(i = 0; i < indent-1; i++)
+-		r += fmtprint(f, "\t");
+-	r += fmtprint(f, "]");
+-	return r;
+-}
+-
+-static int
+-printobject(Fmt *f, JSON *j, int indent)
+-{
+-	JSONEl *jl;
+-	int i, r;
+-
+-	if(j->first == nil){
+-		return fmtprint(f, "{}");
++	JSONEl *e;
++	int i, object, compact;
++	char *open, *close;
++	char *key;
++	ulong n;
++
++	object = j->t != JSONArray;
++	compact = flags & JSONCompact;
++	open = object ? "{" : "[";
++	close = object ? "}" : "]";
++	if(fmtstrcpy(f, open) < 0) return -1;
++	if(j->first == nil)
++		return fmtstrcpy(f, close) < 0 ? -1 : 0;
++	if(!compact && fmtstrcpy(f, "\n") < 0) return -1;
++	for(e = j->first; e != nil; e = e->next){
++		if(!compact)
++			for(i = 0; i <= indent; i++)
++				if(fmtstrcpy(f, "\t") < 0) return -1;
++		if(object){
++			key = jsonkey(j, e, &n);
++			if(key == nil || printstring(f, key, n, flags) < 0)
++				return -1;
++			if(fmtstrcpy(f, compact ? ":" : ": ") < 0) return -1;
++		}
++		if(printjson(f, e->val, indent+1, flags) < 0) return -1;
++		if(e->next != nil && fmtstrcpy(f, ",") < 0) return -1;
++		if(!compact && fmtstrcpy(f, "\n") < 0) return -1;
+ 	}
+-	r = fmtprint(f, "{\n");
+-	for(jl = j->first; jl != nil; jl = jl->next){
++	if(!compact)
+ 		for(i = 0; i < indent; i++)
+-			r += fmtprint(f, "\t");
+-		r += printstring(f, jl->name);
+-		r += fmtprint(f, ": ");
+-		r += printjson(f, jl->val, indent);
+-		r += fmtprint(f, "%s\n", jl->next != nil ? "," : "");
+-	}
+-	for(i = 0; i < indent-1; i++)
+-		r += fmtprint(f, "\t");
+-	r += fmtprint(f, "}");
+-	return r;
++			if(fmtstrcpy(f, "\t") < 0) return -1;
++	return fmtstrcpy(f, close) < 0 ? -1 : 0;
+ }
+ 
+ static int
+-printjson(Fmt *f, JSON *j, int indent)
++printjson(Fmt *f, JSON *j, int indent, int flags)
+ {
++	if(j == nil || indent > JSONMaxDepth) return -1;
+ 	switch(j->t){
+ 	case JSONNull:
+-		return fmtprint(f, "null");
+-		break;
++		return fmtstrcpy(f, "null") < 0 ? -1 : 0;
+ 	case JSONBool:
+-		return fmtprint(f, "%s", j->n ? "true" : "false");
+-		break;
++		return fmtstrcpy(f, j->n ? "true" : "false") < 0 ? -1 : 0;
+ 	case JSONNumber:
+-		return fmtprint(f, "%f", j->n);
+-		break;
++		if(isNaN(j->n) || isInf(j->n, 0)) return -1;
++		return fmtprint(f, "%f", j->n) < 0 ? -1 : 0;
++	case JSONNumberText:
++		if(!_jsonnumbervalid(j->s)) return -1;
++		return fmtstrcpy(f, j->s) < 0 ? -1 : 0;
+ 	case JSONString:
+-		return printstring(f, j->s);
+-		break;
+-	case JSONArray:
+-		return printarray(f, j, indent+1);
+-		break;
+-	case JSONObject:
+-		return printobject(f, j, indent+1);
+-		break;
++		if(j->s == nil) return -1;
++		return printstring(f, j->s, strlen(j->s), flags);
++	case JSONStringN:
++		if(j->text == nil) return -1;
++		return printstring(f, j->text->s, j->text->n, flags);
++	case JSONArray: case JSONObject: case JSONObjectN:
++		return printcontainer(f, j, indent, flags);
+ 	}
+-	return 0;
++	return -1;
+ }
+ 
+ int
+ JSONfmt(Fmt *f)
+ {
+ 	JSON *j;
++	int flags;
+ 
+ 	j = va_arg(f->args, JSON*);
+-	return printjson(f, j, 0);
++	flags = f->flags & FmtSharp ? JSONCompact : 0;
++	return printjson(f, j, 0, flags);
+ }
+ 
+ void
+@@ -119,3 +124,46 @@
+ {
+ 	fmtinstall('J', JSONfmt);
+ }
++
++static int
++full(Fmt *f)
++{
++	*(int*)f->farg = 1;
++	return 0;
++}
++
++int
++jsonfmt(Fmt *f, JSON *j, int flags)
++{
++	if(f == nil || (flags & ~(JSONCompact|JSONAscii)) != 0){
++		werrstr("json: invalid formatter or flags");
++		return -1;
++	}
++	return printjson(f, j, 0, flags);
++}
++
++long
++jsonformat(char *buf, ulong n, JSON *j, int flags)
++{
++	Fmt f;
++	int failed;
++
++	if(buf == nil || n == 0 || n > 0x7FFFFFFF ||
++	   (flags & ~(JSONCompact|JSONAscii)) != 0){
++		werrstr("json: invalid output buffer or flags");
++		return -1;
++	}
++	memset(&f, 0, sizeof f);
++	failed = 0;
++	f.start = f.to = buf;
++	f.stop = buf+n-1;
++	f.flush = full;
++	f.farg = &failed;
++	if(jsonfmt(&f, j, flags) < 0 || failed){
++		buf[0] = 0;
++		werrstr("json: invalid tree or output limit");
++		return -1;
++	}
++	*(char*)f.to = 0;
++	return (char*)f.to-buf;
++}
+--- a/sys/man/2/json
++++ b/sys/man/2/json
+@@ -115,6 +115,116 @@
+ format strings.
+ .SH SOURCE
+ .B /sys/src/libjson
++.SH BOUNDED INTERFACE
++.EX
++typedef struct JSONText JSONText;
++struct JSONText {
++	ulong n;
++	char *s;
++};
++
++typedef struct JSONLimits JSONLimits;
++struct JSONLimits {
++	ulong maxdepth;
++	ulong maxnodes;
++	ulong maxbytes;
++};
++
++JSON* jsonparsebounded(char *s, ulong n, JSONLimits *limits);
++int   jsonint64(JSON *j, vlong *out);
++char* jsonstring(JSON *j, ulong *n);
++char* jsonkey(JSON *j, JSONEl *e, ulong *n);
++JSON* jsonbynameN(JSON *j, char *s, ulong n);
++long  jsonformat(char *buf, ulong n, JSON *j, int flags);
++int   jsonfmt(Fmt *f, JSON *j, int flags);
++.EE
++.PP
++.I Jsonparsebounded
++parses exactly the supplied readable byte span, which need not have a
++terminating NUL. It rejects malformed UTF-8, malformed JSON number grammar,
++incomplete or unpaired Unicode escapes, duplicate decoded object keys,
++trailing data, and raw NUL bytes. Escaped NUL characters are retained.
++Limits are copied into each parse context; no global policy is changed.
++The root has depth zero. Maximum supported depth is
++.BR JSONMaxDepth " (256)."
++.I Maxnodes
++counts each value and each object key. It must be nonzero.
++.I Maxbytes
++limits cumulative requested allocation bytes, including lexer scratch,
++list cells, text descriptors and terminators, but not allocator overhead.
++This is not a total process-memory, CPU-time or wall-clock limit.
++Input lengths above 0x7FFFFFFF-UTFmax-1 are rejected.
++.PP
++Booleans, null and arrays keep their existing representation.
++Numbers have type
++.B JSONNumberText
++with their exact, allocated number spelling in
++.BR s .
++Strings have type
++.B JSONStringN
++with a pointer
++.B text
++to a counted
++.B JSONText
++in the existing value union.
++The descriptor and its bytes occupy one allocation; its s member points
++immediately after the descriptor. Jsonfree releases that single allocation.
++For a borrowed string view passed only to a formatter, the descriptor and bytes
++may instead be caller-owned; do not pass such a view to jsonfree.
++Objects have type
++.BR JSONObjectN .
++Each element has an extended allocation, JSONElN, containing the unchanged
++JSONEl as its first member and a byte count. The name member still points to
++the decoded key bytes. Jsonkey returns those bytes and their count;
++jsonbynameN looks up a complete counted key. Interior NUL is not a terminator
++for these operations. Existing JSONEl fields and positional initializers
++are unchanged.
++Decoded text is UTF-8 with a convenience terminating NUL, which is not included
++in its count. Interior NUL characters remain part of the counted value.
++.PP
++.I Jsonfree
++releases either representation, including partially built trees on parse error.
++The result owns its text; input storage need not survive the parse call.
++The existing jsonparse entry point continues to return the original types,
++including double-valued JSONNumber. Existing type numbers and structure layouts
++are unchanged. Applications opting into the bounded API must handle its new types.
++.PP
++.I Jsonint64
++converts only JSONNumberText containing a signed 64-bit integer spelling.
++It rejects fractions, exponents and out-of-range values without floating point
++or changing the result on failure. It returns zero on success, -1 on error.
++.I Jsonstring
++returns either string representation with its byte count.
++Jsonstr also accepts JSONStringN, but rejects an interior NUL instead of returning
++a silently truncated C string. Jsonbyname accepts both object representations
++and matches complete keys to its C-string argument.
++.PP
++.I Jsonformat
++formats either representation into the caller's buffer, whose size includes
++the terminating NUL. It returns the byte count excluding that NUL, or -1 if
++the tree, flags or capacity are invalid. Buffer contents on failure must not be
++used; no bytes beyond its capacity are written. Flags are
++.B JSONCompact
++(omit pretty-printing whitespace) and
++.B JSONAscii
++(escape non-ASCII scalars). Counted strings and keys preserve interior NUL.
++Exact numbers are checked and emitted without rounding. The existing %J
++formatter accepts both representations; %#J selects compact output.
++Formatting rejects nesting deeper than JSONMaxDepth. Programmatically built
++trees must have valid, live storage and proper ownership; malformed pointers
++and cyclic lists are not a supported representation.
++.PP
++Parsing/formatting contexts are per call. Independent trees may be processed
++concurrently; callers must synchronize mutation, traversal and freeing of any
++shared tree. Install the global %J formatter before concurrent formatted printing.
++The bounded formatter does not require global formatter registration.
++.PP
++.I Jsonfmt
++uses the same tree printer with a caller-initialized Fmt and the same flags.
++It returns zero on success, -1 on failure, and does not append a terminating NUL.
++The caller owns the formatter buffer, flush policy and output limit, and must
++discard any partially formatted output on failure. This entry point does not
++install or modify the global %J formatter.
+ .SH DIAGNOSTICS
+ The functions
+ .I jsonparse,

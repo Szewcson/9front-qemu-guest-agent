@@ -26,8 +26,12 @@ Shutdown defaults off; `halt` is unsupported. Stdio exposes file operations but
 cannot execute commands, set time or shut down. Append modes, filesystem
 freeze/thaw, trim and password/key mutation remain unsupported.
 `guest-file-flush` is not a stable-storage or backup-consistency guarantee.
-The [feature inventory](docs/FEATURES.md) describes the remaining standard QGA
-commands and native prerequisites.
+The [feature inventory](docs/FEATURES.md) describes intentionally unsupported
+commands. The active roadmap is reliability of existing features, not all 44
+cross-platform commands or new guest subsystems. `guest-get-fsinfo` remains
+intentionally unsupported; no trusted filesystem-mapping configuration is planned.
+Keep backup freeze/trim disabled;
+unquiesced live backups have no application-consistency guarantee.
 
 QGA gives the host guest file and execution authority under the agent identity.
 It provides no protocol authentication or guest trust attestation. A host can
@@ -36,13 +40,13 @@ explicitly run a guest shell through exec. Read [SECURITY](docs/SECURITY.md) and
 
 ## Evidence
 
-Independent Linux checks passed 11 C suites and 54 Python methods, ASan/UBSan
+Independent Linux checks passed 12 C suites and 54 Python methods, ASan/UBSan
 with leak checks, and GCC analyzer. Prior native userspace tests and real PVE
-queries, binary files, clock setting and execution passed. The last verified VM
+queries, binary files, clock setting and execution passed. The prior verified VM
 cold-booted the separate virtio kernel and automatically started `0.5.1-dev`;
 the operator supplied passing PVE info, file and five exec smoke tests.
 
-The independent daemon and nine portable suites now build/test natively in an
+The independent daemon and ten portable suites now build/test natively in an
 isolated local QEMU guest. Real file-guard, sampler, process and stream tests
 passed; disk inventory includes an IDE hard disk and CD-ROM.
 Current ThreadSanitizer fixtures failed runtime initialization, so no current
@@ -53,12 +57,38 @@ safety or PCI-controller hot-unplug certification.
 Local fixes add a bounded endpoint-readiness wait and pinned-parent exclusive
 creation in a private helper. Creation rejects final-parent unions, including
 mixed-device unions, rather than trusting their create-branch policy. Native
-regressions and wire queries passed locally; Proxmox deployment remains pending.
+regressions and wire queries passed locally. On 2026-10-15 the Proxmox guest
+passed native builds/regressions and received the updated `0.6.0-dev` daemon,
+helper and manuals. One detached owner runs without a Drawterm export. The
+operator supplied passing updated PVE ping/info/network, CPU/timezone/routes,
+file/exec checks and OS/hostname/time/disk/load queries. A later normal PVE
+shutdown/start reached a boot-launched agent answering all 23 commands after
+transient early failures. After route restoration, independent owner/isolation
+inspection, newer polling/checked warm boots and operator PVE smoke/IP checks
+passed. The checked image showed increasing real IRQ deliveries and is now
+selected persistently with rollback images/config retained. Cold startup,
+automatic-agent/host smoke and supplied-time clock/UTC RTC checks also passed,
+including delayed agreement with timesync running. Broader fault/reboot tests
+remain separate.
 See [STATUS](docs/STATUS.md) for evidence and remaining gates.
 
 ## Build and run
 
-On native 9front amd64:
+This checkout now requires the [patched native libjson](patches/libjson/README.md)
+for bounded parsing, exact numbers and JSON formatting. The custom grammar parser
+has been replaced with a protocol/storage adapter. The installed Proxmox agent
+is still the previous build; no system header or library was replaced.
+
+For a private native build, prepare the pinned sources with the helper below,
+transfer that source copy to 9front, then build its isolated archive:
+
+```rc
+rc tests/native-libjson.rc /path/to/patched-source /path/to/NEW-libjson-output
+mk 'JSONINCLUDE=/path/to/patched-source/sys/include' 'JSONLIB=/path/to/NEW-libjson-output/libjson.a'
+mk 'JSONINCLUDE=/path/to/patched-source/sys/include' 'JSONLIB=/path/to/NEW-libjson-output/libjson.a' test
+```
+
+If the patched header and archive have already been installed on native 9front:
 
 ```rc
 mk
@@ -93,6 +123,8 @@ echo '{"execute":"guest-ping"}' | ./qga9 -s
 Linux development checks build test harnesses:
 
 ```sh
+mkdir -p build
+sh scripts/prepare-libjson.sh build/libjson-source
 make -C tests test
 make -C tests sanitize
 make -C tests analyze

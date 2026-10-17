@@ -4,7 +4,14 @@ Use one normal PVE QGA channel. UART works with stock 9front; virtio needs the
 separate [driver](https://github.com/Szewcson/9front-virtio-serial/blob/main/docs/INSTALL.md)
 and an enabled native stream endpoint. Both use the same daemon and host scripts.
 The last verified test VM used virtio and automatic cold startup;
-[STATUS](STATUS.md) distinguishes prior evidence from unrerun native split checks.
+[STATUS](STATUS.md) separates prior Proxmox results from current local native tests.
+
+The active scope is reliable existing management, not the entire cross-platform
+QGA union. For acceptance, verify one boot-launched daemon, ping/info, OS/hostname,
+IP reporting, file/exec smoke tests when enabled, a consistent UTC RTC policy,
+and a planned shutdown/start with console recovery. The 21 unsupported commands
+are not a release checklist. Freeze/trim stay off; use a clean shutdown when
+backup consistency requires it. See [FEATURES](FEATURES.md).
 
 ## Configure the channel
 
@@ -64,10 +71,22 @@ qm agent "$VMID" get-vcpus
 qm agent "$VMID" get-timezone
 ```
 
-Current source reports `qga9-0.6.0-dev`: 22 advertised management commands,
+Current source reports `qga9-0.6.1-dev`: 22 advertised management commands,
 23 with `-S`, when the load sampler starts. Sampler startup failure reduces
-each count by one. The last verified deployed version remains `0.5.1-dev`;
-the new version passed native/local-QEMU tests, not new PVE integration tests.
+each count by one. This native-libjson migration is not yet deployed or accepted
+on the real Proxmox transport. The last verified deployment is `0.6.0-dev`,
+which was built/tested natively and installed in the Proxmox guest on
+2026-10-15, with one detached channel owner. The operator then
+supplied passing PVE ping/info/network, CPU/timezone/routes, binary file and all
+five exec smoke results for `0.6.0-dev`. A subsequent host batch also returned
+OS/hostname/time, five disk/partition nodes and nonzero load estimates. A later
+normal PVE shutdown/start reached automatic agent availability, after initial
+not-running replies. These host results precede the later one-time newer-driver
+warm boot. Polling and checked-IRQ warm kernels subsequently passed independent
+startup/isolation and operator host file/exec/query tests; the operator also
+reported both Summary-page IPs. Persistent checked-kernel cold startup and an
+explicit supplied-time/UTC RTC test with delayed readback subsequently passed.
+See STATUS for remaining gates and the distinction from local fault tests.
 Save exact output, guest device/status/logs and versions. Repeat host connections,
 then inspect PVE UI status/IP display separately. Compare reported native values
 with guest OS, time, `/net/ipifc/*/status`, CPU and route sources.
@@ -157,8 +176,11 @@ Fixed #Y permissions are eve-only and immutable. Configure the QGA helper with
 `qga9_transport=stream` and the verified canonical data path.
 The local helper now makes up to 30 one-second readiness waits, then launches
 once or reports timeout. It does not claim data to probe. Native ready/delayed/
-absent fixtures passed; Proxmox deployment remains pending and earlier PVE
-cold-boot evidence used the old helper.
+absent fixtures passed locally and on the Proxmox guest. The updated helper was
+installed there and launched one detached agent on 2026-10-15. The operator then
+reported successful ping/info after a normal shutdown/start, with no manual
+launch in the sequence. Early not-running probes preceded the successful ones;
+the transcript has no timings. Earlier cold-boot evidence used the old helper.
 
 Default INTx stays masked with 100 ms polling. Local checked-IRQ, forced reset,
 malformed-ring and named-port recovery tests passed; broader hardware/fault
@@ -184,8 +206,10 @@ QGA initiation has no success reply. Fixed native `fshalt` argv attempts storage
 halt before powerdown; fork success/timeout is not proof of flush or poweroff.
 Inspect the VM console and host state. Do not substitute forced stop/reset while
 the filesystem is active. Local QEMU powerdown passed with filesystem halt and
-a QMP guest-shutdown event; this is not new Proxmox acceptance, a reboot test or
-power-failure validation. Review the UTC RTC policy in [9FRONT](9FRONT.md) before
+a QMP guest-shutdown event. The operator also supplied a normal PVE shutdown/start
+with eventual agent availability; that transcript alone does not trace the exact
+QGA/ACPI path or establish filesystem integrity, warm reboot or power-failure
+behavior. Review the UTC RTC policy in [9FRONT](9FRONT.md) before
 clock tests; native timesync `-L` can override an initially successful result.
 
 ## Troubleshooting and rollback

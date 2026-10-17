@@ -100,7 +100,16 @@ streamchecks(Sink *s, Jdoc *d, char *input)
 		jparse(d, s->text, s->used), "disk availability metadata");
 	r = jmember(d, jmember(d, 0, "return"), "supported_commands");
 	check(r >= 0 && d->token[r].count == 12 &&
-		strstr(s->text, "guest-get-disks") != nil, "only registered queries advertised");
+		strstr(s->text, "guest-get-disks") != nil &&
+		strstr(s->text, "guest-get-fsinfo") == nil, "only registered queries advertised");
+	request = "{\"execute\":\"guest-get-fsinfo\",\"arguments\":{},\"id\":17}";
+	s->used = 0;
+	check(qgafeed(q, (const uchar*)request, strlen(request)) == 0 &&
+		jparse(d, s->text, s->used) &&
+		jmatch(d, jmember(d, jmember(d, 0, "error"), "class"), "Unsupported") &&
+		jmember(d, 0, "return") < 0 &&
+		jgetint64(d, jmember(d, 0, "id"), &id) == 0 && id == 17,
+		"storage backend does not imply verified filesystem provenance");
 	used = strlen("{\"execute\":\"guest-get-disks\",\"id\":\"");
 	memmove(input, "{\"execute\":\"guest-get-disks\",\"id\":\"", used);
 	for(i = 0; i < 3000; i++){

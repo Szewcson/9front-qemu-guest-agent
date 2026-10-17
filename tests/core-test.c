@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: MIT */
 /* The identical core tests build under stock 9front and the Linux test shim. */
-#include "../src/json.h"
+#include "../src/qjson.h"
 #ifdef QGA_HOST_TEST
 #include <stdio.h>
 #endif
@@ -136,7 +136,7 @@ extendedchecks(Sink *out, Jdoc *doc)
 	ShutdownMock s;
 	Jbuf b;
 	char text[128];
-	const char *expected = "\"\\u2603\\ud83d\\ude00\\\\\\\"\\u000a\\u0000\"";
+	const char *expected = "\"\\u2603\\ud83d\\ude00\\\\\\\"\\n\\u0000\"";
 	char raw[] = "\342\230\203\360\237\230\200\\\"\n\0";
 	const char *info = "{\"execute\":\"guest-info\"}";
 	int r, a;

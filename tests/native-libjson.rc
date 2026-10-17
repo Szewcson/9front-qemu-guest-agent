@@ -1,0 +1,22 @@
+#!/bin/rc
+# Explicit isolated build/test; no system header/archive install or agent change.
+rfork e
+if(! ~ $#* 2 || ! ~ $cputype amd64){
+	echo 'usage: rc tests/native-libjson.rc PATCHED-9FRONT-ROOT NEW-OUTPUT-DIR (amd64)' >[1=2]
+	exit usage
+}
+libjson_root=$1
+libjson_out=$2
+if(test -e $libjson_out || ! test -r tests/native-libjson-test.c ||
+   ! test -r $libjson_root/sys/include/json.h ||
+   ! test -r $libjson_root/sys/src/libjson/json.c ||
+   ! test -r $libjson_root/sys/src/libjson/printjson.c) exit preflight
+mkdir $libjson_out || exit directory
+6c -FTVw -I$libjson_root/sys/include -o $libjson_out/json.6 $libjson_root/sys/src/libjson/json.c || exit parser
+6c -FTVw -I$libjson_root/sys/include -o $libjson_out/printjson.6 $libjson_root/sys/src/libjson/printjson.c || exit formatter
+ar vu $libjson_out/libjson.a $libjson_out/json.6 $libjson_out/printjson.6 || exit archive
+6c -FTVw -I$libjson_root/sys/include -o $libjson_out/test.6 tests/native-libjson-test.c || exit fixture
+6l -o $libjson_out/native-libjson-test $libjson_out/test.6 $libjson_out/json.6 $libjson_out/printjson.6 || exit link
+$libjson_out/native-libjson-test || exit test
+echo 'isolated native libjson tests passed; system library and QGA unchanged'
+exit ''

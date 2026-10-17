@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: MIT */
 #ifndef QGA9_FILES_H
 #define QGA9_FILES_H
-#include "json.h"
+#include "qjson.h"
 
 enum {
 	QgaFileMax = 16,

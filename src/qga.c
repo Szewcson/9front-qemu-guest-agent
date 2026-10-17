@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: MIT */
-#include "json.h"
+#include "qjson.h"
 
 struct Qga {
 	QgaWrite write;
@@ -310,7 +310,7 @@ dispatch(Qga *q)
 		if(result < 0 || q->buf.failed)
 			return error(q, id, "GenericError", "Cannot read or serialize native guest information");
 	}else{
-		jbtext(&q->buf, "{\"version\":\"qga9-0.6.0-dev\",\"supported_commands\":[");
+		jbtext(&q->buf, "{\"version\":\"qga9-0.6.1-dev\",\"supported_commands\":[");
 		first = 1;
 		for(i = 0; i < (int)(sizeof commands / sizeof commands[0]); i++){
 			if(!available(q, i))

@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: MIT */
 #ifndef QGA9_GUESTINFO_H
 #define QGA9_GUESTINFO_H
-#include "json.h"
+#include "qjson.h"
 
 enum {
 	QgaCpuMax = 256,

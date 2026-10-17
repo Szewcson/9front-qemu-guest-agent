@@ -4,12 +4,9 @@
 
 /* The test shim is not part of the native daemon or its dependencies. */
 #ifdef QGA_HOST_TEST
-#include <stdlib.h>
-#include <string.h>
-typedef unsigned char uchar;
+#include <u.h>
 typedef long long QgaInt64;
 typedef unsigned long long QgaUint64;
-#define nil ((void*)0)
 #else
 #include <u.h>
 #include <libc.h>

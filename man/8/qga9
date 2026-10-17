@@ -86,6 +86,10 @@ are not implemented.
 Requests are limited to 8192 bytes, 512 JSON tokens and depth 16;
 responses to 65536 bytes. IDs retain exact numeric lexemes.
 Base64 conversion uses libc with strict canonical validation.
+JSON parsing and formatting use a patched native libjson with counted strings,
+exact number spelling and per-call bounds. The temporary parse tree is freed
+before dispatch; requested parser allocations are limited to 64 KiB per request,
+excluding allocator overhead. Stock libjson does not provide these APIs.
 File transfers have 16 handles and 4096-byte chunks. Supported file modes
 are r, rb, r+, r+b, rb+, w, wb, w+, w+b and wb+; append modes are unsupported.
 Paths must be absolute and fit in 1024 bytes including the terminator.

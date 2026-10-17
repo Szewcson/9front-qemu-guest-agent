@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: MIT */
 /* Same bounds/formatting fixtures for native libc and the host codec adapter. */
-#include "../src/json.h"
+#include "../src/qjson.h"
 #ifdef QGA_HOST_TEST
 #include <stdio.h>
 #endif

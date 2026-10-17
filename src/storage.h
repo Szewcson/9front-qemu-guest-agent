@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: MIT */
 #ifndef QGA9_STORAGE_H
 #define QGA9_STORAGE_H
-#include "json.h"
+#include "qjson.h"
 
 enum {
 	QgaDiskTextMax = 16384,

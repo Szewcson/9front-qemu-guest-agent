@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: MIT */
 /* Explicit native sampler lifecycle test; reads only kernel process metadata. */
 #include "../src/native.h"
-#include "../src/json.h"
+#include "../src/qjson.h"
 
 void
 main(void)

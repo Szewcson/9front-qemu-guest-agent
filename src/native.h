@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: MIT */
-#include "json.h"
+#include "qjson.h"
 #include "files.h"
 #include "process.h"
 

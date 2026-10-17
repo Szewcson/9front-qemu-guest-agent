@@ -28,19 +28,24 @@ because they configure/start QGA, not the kernel. The helper skips chmod only fo
 exact canonical #Y data paths; ordinary stream/UART restrictions remain.
 The local helper now waits up to 30 one-second attempts for asynchronous driver
 publication, without opening data, then launches once or reports timeout.
-Native ready/delayed/absent fixtures passed locally; deployment on Proxmox
-remains pending.
+Native ready/delayed/absent fixtures passed locally and on the Proxmox guest.
+The updated helper was installed there and launched one detached agent on
+2026-10-15. Subsequent operator host queries and normal shutdown/start passed;
+see STATUS for their scope and remaining target-specific gates.
 
-The last verified deployment used the normal Proxmox virtio QGA channel and
-automatic cold startup. Host socket reconnect preserves the guest's file/job
+The prior verified cold-start deployment used the normal Proxmox virtio QGA
+channel. Host socket reconnect preserves the guest's file/job
 state and Chan ownership; positive writes wait while the backend is closed.
 Actual guest close, removal or terminal controller faults follow driver reset/
-drain rules. The current `0.6.0-dev` additionally provides load estimates;
-the driver split itself does not add protocol handlers.
+drain rules. Load estimates were introduced in the Proxmox-tested `0.6.0-dev`.
+The current `0.6.1-dev` source candidate migrates JSON handling to patched native
+libjson; its real-Proxmox acceptance remains pending. The driver split itself
+does not add protocol handlers.
 
 The driver is QGA-port-focused and PC64/coherent little-endian only. IRQ routing
 is not fully verified: default INTx stays masked and the worker polls. A separate
 local checked-IRQ kernel passed real emulated IRQ, forced reset, malformed-ring
-and named-port recovery tests; full platform validation is still open. Stock kernel and
+and named-port recovery tests. A later Proxmox warm boot also passed actual IRQ
+delivery and operator host smoke; full platform validation is still open. Stock kernel and
 ISA rollback configuration must remain available. Repo splitting does not
 reinstall or reboot the guest.

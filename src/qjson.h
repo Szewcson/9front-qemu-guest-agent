@@ -2,6 +2,11 @@
 #ifndef QGA9_JSON_H
 #define QGA9_JSON_H
 #include "qga.h"
+#ifdef QGA_HOST_TEST
+#include <u.h>
+#include <libc.h>
+#endif
+#include <json.h>
 
 enum { Jobject, Jarray, Jstring, Jnumber, Jtrue, Jfalse, Jnull };
 
@@ -9,18 +14,20 @@ typedef struct Jtoken Jtoken;
 
 struct Jtoken {
 	int type;
-	int start;
-	int end;
 	int next;
 	int count;
+	JSON value;
+	JSONText text;
+	JSONElN edge;
 };
 
 struct Jdoc {
-	const char *text;             /* Borrowed until response serialization. */
-	int size;
-	int pos;
+	/* Fixed, self-referential tree views. Do not copy a parsed Jdoc or jsonfree
+	 * these nodes; parse releases the temporary library tree before returning. */
+	int used;
 	int ntoken;
 	Jtoken token[QgaTokenMax];
+	char data[QgaOutputMax+1];
 };
 
 int jparse(Jdoc*, const char*, int);

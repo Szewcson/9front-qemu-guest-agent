@@ -43,9 +43,11 @@ management channels, twenty-three with `-S`. Native stdio lists nineteen
 is one lower and load is not advertised. The minimal
 Linux stream harness registers no native callbacks and lists only four. All
 listed entries have `enabled: true`; only shutdown has `success-response: false`.
-Excluded commands are not advertised. The current source version is `qga9-0.6.0-dev`;
-versions through 0.4 were accepted in operator-supplied Proxmox output, including
-the five exec smoke tests. The previous
+Excluded commands are not advertised. The current source version is `qga9-0.6.1-dev`.
+The last verified Proxmox deployment is `0.6.0-dev`; real-PVE acceptance of the
+`0.6.1-dev` native-libjson migration remains pending. See [STATUS](STATUS.md) for
+deployment evidence. Earlier versions through 0.4 were accepted in
+operator-supplied Proxmox output, including the five exec smoke tests. The previous
 file/clock batch passed corrected-script host binary round-trip and supplied-time
 clock tests; omitted-time and failure injection remain separate checks.
 
@@ -71,8 +73,12 @@ not exhaustive failure/lifetime validation.
 
 - Maximum input object size: 8192 bytes, including internal whitespace; maximum
   tokens: 512; maximum recursive value depth: 16. Duplicate decoded object keys
-  are rejected. Protocol/parser memory is fixed after creation; exec adds bounded
-  per-job native supervisors and fixed-size result buffers.
+  are rejected. Framing/output and adapter token/text storage are fixed after
+  creation. Patched native libjson uses at most 64 KiB of cumulative requested
+  allocation bytes per request (excluding allocator overhead), frees its temporary
+  tree before dispatch and retains no borrowed input. Test/client response parsing
+  has a separate 256 KiB allocation budget. Exec adds bounded per-job native
+  supervisors and fixed-size result buffers.
 - Strict JSON with validated UTF-8 input; no QMP single-quoted-string extension.
   Output is ASCII JSON with CRLF framing. Unicode is escaped, including surrogate
   pairs for non-BMP scalars. Invalid UTF-8, unpaired surrogates and raw string
@@ -181,7 +187,9 @@ or trust guarantee; a guest can forge its own answers.
   MCREATE self-bind validation, rechecks the mounted directory, and creates the
   relative leaf exclusively. A leased, owner-only srv board transfers the
   descriptor back without sharing the helper's descriptor table. Native
-  mixed-union/leased-board regression passed locally; Proxmox deployment is pending.
+  mixed-union/leased-board regression passed locally and on the Proxmox guest;
+  the updated backend is installed there and the operator supplied a passing
+  host binary round-trip. See STATUS for the exact scope and remaining checks.
   Access follows the agent's native identity and namespace; errors are not a
   general no-side-effect or rollback guarantee.
 - Read count defaults to 4096; read/write count is limited to 0..4096 bytes.

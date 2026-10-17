@@ -1,9 +1,11 @@
 # Native 9front installation
 
-Prior native amd64 builds, userspace tests, installation and service startup
-passed. The independent build and native suites now also passed in a separate
-local QEMU guest; this is not a new deployment on the Proxmox VM.
-See [STATUS](STATUS.md) for native, host-fixture and operator PVE evidence.
+Native amd64 builds, userspace tests, installation and service startup passed.
+The independent build and native suites passed in a separate local QEMU guest
+and, on 2026-10-15, in the Proxmox guest before its userspace agent/helper update.
+See [STATUS](STATUS.md) for the subsequent operator PVE host/power-cycle results,
+current access limits and remaining gates; native fixtures alone are not host
+or UI acceptance.
 
 ## Transport choice
 
@@ -39,14 +41,22 @@ Do not write test data or change control settings on a serial console port.
 ## Build, test, install
 
 Copy or clone the source into a native filesystem using your normal trusted
-workflow. Packaging is independent of the native build. Within the checkout:
+workflow. This checkout requires the [native libjson patch series](../patches/libjson/README.md),
+not the stock double-valued parser. Build its private archive first; no global
+header/library replacement is needed. Within the checkout:
 
 ```rc
 echo $objtype
-mk
-mk test
-mk install
+rc tests/native-libjson.rc /path/to/patched-source /path/to/NEW-libjson-output
+mk 'JSONINCLUDE=/path/to/patched-source/sys/include' 'JSONLIB=/path/to/NEW-libjson-output/libjson.a'
+mk 'JSONINCLUDE=/path/to/patched-source/sys/include' 'JSONLIB=/path/to/NEW-libjson-output/libjson.a' test
+mk 'JSONINCLUDE=/path/to/patched-source/sys/include' 'JSONLIB=/path/to/NEW-libjson-output/libjson.a' install
 ```
+
+Use the same include/archive variables for all native targets unless the patched
+header and archive are installed in their conventional system locations. The
+archive is linked statically; the installed binary needs no separate runtime
+library file. Keep the previous binary for rollback.
 
 The intended initial target is `amd64`. The root `mkfile` uses the architecture's
 stock compiler and linker and installs `/$objtype/bin/aux/qga9`, usually accessible
@@ -118,7 +128,10 @@ The native file backend supports read, update and truncate modes with at most
 identity and mounted namespace, not a separate file-sharing service. Device
 files and directories are rejected after descriptor acquisition. Missing paths
 require a readable mounted parent before create, in a private namespace.
-Mixed-device union creation policy is trusted; this is not openat anchoring.
+An isolated helper pins the parent, rejects final-parent unions using native
+MCREATE self-bind validation, and exclusively creates the relative leaf. It no
+longer trusts a mixed-device create branch. Mounted fileservers and later
+metadata changes are not confined by this check.
 See [SECURITY](SECURITY.md). Agent restart invalidates all file handles.
 `guest-file-flush` has no user-space buffer to drain and is not stable-storage
 sync or a backup freeze operation.

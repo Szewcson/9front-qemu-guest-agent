@@ -1,0 +1,5 @@
+02e837ecf038607ab46f9b95b16ca3aff6ea0f1f465414424db89e6a996b7446  sys/include/json.h
+e48b6fa6d919352f9e41b5b1bc8a98279796442e836dddd564c317699930a7c3  sys/src/libjson/json.c
+4fba2f30ce9739815d23eff921dc16afc6e795bc78fa8e73c9b35a96dbb11a1a  sys/src/libjson/printjson.c
+33fd506baea257f2045eb71a406f19125b68eec790f9db3201ebaaad22cb31c2  sys/man/2/json
+d8afcb51e018782a3938cb2661f9a78c55699a14b118724d268ac20000e1ae7e  sys/src/libc/port/rune.c

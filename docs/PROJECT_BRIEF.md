@@ -2,8 +2,12 @@
 
 Provide a community-usable QEMU Guest Agent for 9front, with native Plan 9 C
 sources, the stock 9front toolchain, `mk` and native runtime interfaces.
-This document describes the active scope, including the requested standard QGA
-features and separate virtio driver.
+JSON now uses the repository's opt-in patch series for native libjson; private
+archive linking avoids a global system-library update. See CODECS for the
+source/deployed distinction and exact build requirements.
+The active scope is existing native management and focused reliability work,
+not the full cross-platform QGA union. `guest-get-fsinfo` stays unsupported;
+no operator-declared filesystem-mapping configuration is planned.
 
 ## Project boundary
 
@@ -22,10 +26,12 @@ guest build.
 
 Follow the [standard QGA schema](https://www.qemu.org/docs/master/interop/qemu-ga-ref.html),
 including exact integers, command metadata, framing, errors and asynchronous
-shutdown. [FEATURES](FEATURES.md) records implemented and remaining commands.
+shutdown. [FEATURES](FEATURES.md) records implemented and intentionally unsupported
+commands and the revised reliability roadmap.
 
 Report genuine native data. Commands requiring unavailable filesystem, account,
-hotplug or power semantics return `Unsupported` until those semantics exist.
+hotplug or power semantics return `Unsupported`; implementing new subsystems
+to support them is outside the active scope.
 Do not fabricate Linux-specific IDs, counters, mount tables or success.
 
 Support verified UART mappings and existing raw streams without transport
@@ -44,7 +50,9 @@ Preserve the limits in [SECURITY](SECURITY.md) and [PROTOCOL](PROTOCOL.md).
 Installation must be explicit, reproducible and reversible. Preserve existing
 boot configuration and recovery access. Use one channel consumer. Shutdown is
 opt-in, and actual power tests require an approved or disposable guest.
-Filesystem freeze and automatic trim stay disabled until implemented.
+Filesystem freeze and automatic trim stay disabled. Their native prerequisite
+mechanisms are not planned. Live backups without quiescing do not gain an
+application-consistency guarantee; prefer a clean shutdown for that workflow.
 
 ## Acceptance criteria
 
@@ -52,14 +60,20 @@ Filesystem freeze and automatic trim stay disabled until implemented.
 2. Use a real QEMU agent channel and pass synchronization/ping/metadata through PVE.
 3. Validate each advertised command's schema and native semantics.
 4. Record cold startup, reconnect, access denial and rollback behavior.
-5. For driver changes, preserve DMA reset/drain and pinned-callback lifetimes;
-   validate real IRQ, reset/fault/unplug and platform behavior before release.
+5. For the existing PC64 driver, preserve DMA reset/drain and pinned-callback
+   lifetimes; validate IRQ delivery, pending-I/O cancellation, named-port
+   removal/recovery and bounded context exhaustion. General hardware portability
+   and new fault-injection infrastructure are outside this milestone.
 6. Provide working commands and honest current evidence in [STATUS](STATUS.md).
 
 Current code is experimental. Independent native builds and basic local QEMU
-integration passed; updated Proxmox acceptance and broader platform safety
-remain pending. Startup-readiness and rejected-device-create fixes passed native
-regressions. The private creator rejects final-parent unions
+integration passed. The updated userspace daemon/helper also built/tested
+natively and were installed on the Proxmox guest on 2026-10-15. Subsequent
+operator host queries and normal shutdown/start passed; current evidence and
+remaining target/UI/clock gates are in STATUS. Broader platform safety is not
+certified.
+Startup-readiness and rejected-device-create fixes passed native regressions
+both locally and on that guest. The private creator rejects final-parent unions
 instead of trusting mixed-device union creation policy. Continuous native load
 estimates passed native sampler and real local virtio-query tests.
 Native manuals are prepared, as is the driver's upstream-layout export.

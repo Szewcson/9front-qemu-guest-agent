@@ -201,6 +201,7 @@ openhandle(Test *t, const char *mode)
 	jbchar(&b, '}');
 	jbchar(&b, 0);
 	r = ask(t, a, "guest-file-open");
+	id = 0;
 	check(r >= 0 && jgetint64(&t->doc, r, &id) == 0 && id > 0, "opaque open handle");
 	return id;
 }
