@@ -94,8 +94,8 @@ echo '{"execute":"guest-ping"}' | ./qga9 -s
 
 This does not test the UART or host integration. Do not bind the debug mode to a
 network service. UART status/permissions are not modified by stdio mode.
-Stdio mode rejects `-S` and `-D`, so a protocol-debugging request cannot trigger
-native shutdown. Clock setting and execution are also disabled in stdio, but guest-file APIs
+Stdio mode rejects `-D` and does not register a native shutdown backend.
+Clock setting and execution are also disabled in stdio, but guest-file APIs
 are enabled: file-debugging requests can read, create and truncate guest files.
 
 ## Execution
@@ -183,7 +183,7 @@ filesystem quiescing, stable-storage flushing or discard support.
 UART remains the default, including for older deployment configuration files.
 `-t stream -d PATH` opens an existing native duplex byte-stream device without
 opening a `PATHctl` file or sending UART baud/flow-control commands. It rejects
-`-b`, `-c` and `-s`; `-S`/`-D` retain their normal meanings. The boot helper accepts
+`-b`, `-c` and `-s`; `-D` retains its normal meaning. The boot helper accepts
 `qga9_transport=uart` (default) or `stream` and restricts only the stream's data
 file in the latter case.
 
@@ -203,15 +203,15 @@ This test uses a private namespace and stops only its own test child.
 It tests a duplex byte stream, not PCI discovery, DMA queues, interrupts or
 Proxmox virtio integration.
 
-## Explicit shutdown option
+## Management-channel shutdown
 
-Shutdown is off by default. On an appropriate test guest:
+Shutdown is available on every management channel, with no separate flag:
 
 ```rc
-/bin/aux/qga9 -d VERIFIED_DEVICE -S
+/bin/aux/qga9 -d VERIFIED_DEVICE
 ```
 
-`-S` enables default/explicit powerdown via `/bin/rc /bin/fshalt` and reboot via
+Default/explicit powerdown uses `/bin/rc /bin/fshalt` and reboot uses
 `/bin/rc /bin/fshalt -r`. Only these fixed argv choices are reachable; no request
 string becomes shell code. `halt` without poweroff remains unsupported.
 Success means the isolated shutdown child was started, not that poweroff already
@@ -219,6 +219,11 @@ completed. Local QEMU testing observed filesystem halt, a QMP guest-shutdown
 event and emulator exit status 0. Reboot, failure paths and updated Proxmox
 acceptance remain unverified; always watch the kernel console. See PROXMOX for
 a disruptive test and SECURITY for access limitations.
+
+The former `-S` flag is removed: delete it from custom launch commands. The
+startup helper no longer reads `qga9_shutdown`; old entries, including `no`, do
+not disable power operations. Enabling the management service grants powerdown
+and reboot authority alongside exec and clock control. Stdio remains excluded.
 
 ## RTC policy
 
@@ -252,7 +257,7 @@ you can restore them deliberately. See [SECURITY](SECURITY.md) for limitations.
 No boot file is changed by `mk install`. First validate the mapping and foreground
 operation. `scripts/start.rc` is a native configuration-driven helper. Create a
 trusted machine-specific config from `scripts/service.example`, selecting the
-verified device and leaving shutdown off unless explicitly intended. Install the
+verified device and granting the host management authority, including shutdown. Install the
 helper as `/rc/bin/qga9-start` (mode 0755); keep config owner-only writable/readable.
 
 ```rc
@@ -285,8 +290,8 @@ Stock CPU startup provides `/rc/bin/cpurc.local` and
 `/cfg/$sysname/cpustart`; terminal startup provides `/rc/bin/termrc.local` and
 `/cfg/$sysname/termrc`. Inspect the current versions and hook order on your guest.
 Use a machine-specific hook when possible, after the required namespace is ready.
-`qga9_enabled=no` disables later launches; `qga9_shutdown=no` disables power APIs
-on the next launch. Editing config does not change or stop an already-running
+`qga9_enabled=no` disables later launches. There is no separate shutdown setting.
+Editing config does not change or stop an already-running
 agent: identify/stop that process, then launch once with the changed config.
 Do not put it in every graphical login/profile, replace `cpurc`/`termrc`, or start
 it separately from both boot and login hooks. No supplied script edits these files.

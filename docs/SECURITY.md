@@ -19,7 +19,9 @@ program. Execution is not a sandbox: jobs can allocate, fork, modify files,
 escape a note group or ignore cancellation.
 
 Clock setting changes system time and UTC RTC on management channels.
-Shutdown is off by default; `-S` selects fixed `fshalt` or `fshalt -r` argv.
+Shutdown is available on every management channel and selects fixed `fshalt`
+or `fshalt -r` argv. There is no separate power-operation opt-in; enabling the
+service grants this guest power authority, like its existing exec/time authority.
 Fork success gives no QGA success reply and does not prove flush or poweroff.
 Later shutdown failures are console-only. Local emulated powerdown passed with
 filesystem halt and a QMP guest-shutdown event. The operator also supplied a

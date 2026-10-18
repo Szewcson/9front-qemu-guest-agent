@@ -1,13 +1,13 @@
 # Verification status
 
-Evidence through 2026-10-16. Host fixtures, native tests and operator-supplied
+Evidence through 2026-10-18. Host fixtures, native tests and operator-supplied
 PVE results are distinct checks.
 
 ## Current repository checks
 
 The userspace repository builds independently of the
 [driver repository](https://github.com/Szewcson/9front-virtio-serial).
-Linux tests passed all 12 QGA C suites and 54 Python methods, including the
+Linux tests passed all 12 QGA C suites and 57 Python methods, including the
 native-file/creator syscall mocks, load model and native-helper JSON boundaries.
 Post-split ASan/UBSan with leak checks and GCC `-fanalyzer` passed.
 The driver independently passed 15 C suites and 22 Python methods with the same
@@ -17,6 +17,78 @@ Current driver ThreadSanitizer attempts on three concurrency fixtures failed
 runtime initialization with `unexpected memory mapping`. This is neither a
 detected code race nor a passing current TSan run. Earlier combined-tree TSan
 passes remain prior fixture evidence only.
+
+## Dispatcher and native smoke cleanup (2026-10-18)
+
+Dispatch, availability, reply policy and shutdown-state restrictions now use
+named command kinds, native operation IDs and flags, not table positions or
+negative query selectors. Backend registration and command behavior are
+unchanged. A host scratch build with info/sync/ping/shutdown entries reordered
+passed the same core suite; no permutation or test hook was added to production.
+
+The core suite passed 14,359 parameterized checks, including all 64 backend
+registration profiles before shutdown and every applicable post-shutdown
+profile. It checks advertised capabilities, callback selection/operation,
+missing-backend rejection, file/clock/exec refusal, duplicate shutdown, and
+continued read-only/protocol operation. These behavioral tests replace the
+source-format startup assertions. Three Python methods run its bounded
+`--stdio-info` validator with valid, empty, malformed, error and forbidden
+capability responses; rejected cases must fail normally, not crash or trip a
+sanitizer. All 12 host C suites and 57 Python methods passed, as did
+ASan/UBSan/leak checks and GCC analyzer. The host manual rendered cleanly.
+
+In the private `/usr/glenda/qga-dispatch20261017/qga` checkout, the native build
+and all ten portable suites passed. Native startup mocks and the real private
+duplex-stream test passed. Stdio now requires a successful producer exit and
+semantic validation of its complete capability response, not a negative grep.
+All five native producer-failure cases passed: failed-empty, empty-success,
+malformed JSON, error response, and failure after an otherwise valid response.
+The initial harness run failed because quoted wildcards are literal in native
+rc's `~`; the corrected assertion and final passing run are recorded separately.
+The three intentional `invalid stdio capabilities` diagnostics in that final
+log are expected rejections. Sources were digest-verified; the private binary's
+SHA-1 identity is `8cc511ff8caeb2aeccea6cbeaf9fd1689c5633cf`.
+
+Production allocation ownership and single-owner execution are unchanged;
+argument checks, no-success-reply shutdown and lifecycle protection remain.
+No installed daemon, system library, boot configuration or Proxmox VM was
+changed. Successful power requests against this private candidate and real-PVE
+rollout remain separate checks.
+The unchanged installed lab agent then halted the filesystem and powered down
+with the expected QMP guest-shutdown event and emulator exit zero. The known
+post-halt GLib diagnostic recurred. The stopped image's non-repair qcow2 check
+found no errors; this does not prove guest-filesystem data integrity. The lab
+is powered off.
+
+## Default management-channel shutdown (2026-10-17)
+
+The source now registers `guest-shutdown` on UART and raw-stream management
+channels alongside clock setting and execution, without an extra enable flag.
+The `-S` option and helper's `qga9_shutdown` setting were removed. Old config
+entries, including `no`, are ignored; custom commands still passing `-S` must
+be updated. Stdio has no shutdown, clock-setting or exec backend. Argument
+validation, fixed argv, one successful initiation per instance, isolated child
+descriptor cleanup and post-initiation mutation refusal remain unchanged.
+No allocation ownership or shared-state/concurrency model changed.
+
+All 12 host C suites and 56 Python methods passed, with ASan/UBSan/leak checks
+and GCC analyzer. The two new Python methods check source/configuration policy,
+not native execution. The host manual rendered without diagnostics.
+
+A new private checkout at `/usr/glenda/qga-shutdown20261017/qga` in the NIC-less
+local QEMU guest built without warnings against the previously tested private
+libjson archive. All ten native portable suites passed, as did the native
+startup mocks (ready, delayed publication and bounded timeout). The real duplex
+stream fixture confirmed default shutdown advertisement with
+`success-response: false`, invalid-mode rejection and stdio exclusion. It did
+not send a successful power request. The private daemon's SHA-1 identity is
+`7d25ba3733a5c71a1f9524e7c470bbc6b4f0808c`; source transfer was digest-verified.
+These checks did not install a daemon, helper or library, edit boot files, or
+contact Proxmox. The real PVE rollout remains pending.
+Afterward the unchanged installed lab agent performed clean filesystem halt
+and powerdown, with QMP `guest: true, reason: guest-shutdown` and emulator exit
+zero. The known post-halt GLib diagnostic recurred. The lab is powered off;
+this cleanup is not a successful-power-request test of the private candidate.
 
 ## Native libjson migration (2026-10-16)
 

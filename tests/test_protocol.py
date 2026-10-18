@@ -131,8 +131,8 @@ class ProtocolTests(unittest.TestCase):
                         "guest-network-get-interfaces"]:
             self.assert_error(request(command), "Unsupported")
 
-    def test_shutdown_disabled_for_all_modes(self):
-        # No actual shutdown callback or external execution exists in this slice.
+    def test_shutdown_requires_registered_backend(self):
+        # The minimal stream harness registers no native backends.
         for mode in [None, "halt", "powerdown", "reboot"]:
             arguments = {} if mode is None else {"mode": mode}
             self.assert_error(request("guest-shutdown", arguments), "Unsupported")

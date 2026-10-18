@@ -4,5 +4,4 @@ qga9_enabled=yes
 qga9_device='#t/eia0'
 # stream skips UART controls; it does NOT install/provide a virtio driver.
 qga9_transport=uart
-# Opt in with yes only when native fshalt/power behaviour is appropriate.
-qga9_shutdown=no
+# Powerdown/reboot are available whenever the management service runs.

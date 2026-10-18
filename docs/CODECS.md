@@ -100,7 +100,8 @@ privileged access paths. Native allocations are checked and freed on success
 and error; copies and formatter writes are capacity-checked. Mutable parser and
 formatter state is per call. A protocol/document instance still has one owner;
 shared-tree mutation or concurrent use of an instance is not supported.
-No file/exec/clock/shutdown authorization or transport policy was broadened.
+The JSON migration itself did not broaden file/exec/clock/shutdown authorization
+or transport policy. Current management-channel policy is in [SECURITY](SECURITY.md).
 
 This is not complete platform/library certification. The host Fmt shim is not
 native libc, legacy parser behavior is not comprehensively hardened, and current

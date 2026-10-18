@@ -3,6 +3,7 @@
 #include "../src/qjson.h"
 #ifdef QGA_HOST_TEST
 #include <stdio.h>
+#include <unistd.h>
 #endif
 
 static void
@@ -129,6 +130,245 @@ shutdownmock(void *context, int mode)
 	return s->failure ? -1 : 0;
 }
 
+/* Independent wire inventory: neither table order nor production selectors
+ * define expected availability, operation IDs or post-shutdown behavior. */
+enum { Mquery=1, Mload=2, Mfile=4, Mtime=8, Mexec=16, Mshutdown=32, Mall=64 };
+typedef struct MatrixCommand MatrixCommand;
+struct MatrixCommand { const char *name, *arguments; int backend, op; };
+static const MatrixCommand matrixcommands[] = {
+	{"guest-info", "{}", 0, 0},
+	{"guest-ping", "{}", 0, 0},
+	{"guest-sync-delimited", "{\"id\":7}", 0, 0},
+	{"guest-sync", "{\"id\":7}", 0, 0},
+	{"guest-get-load", "{}", Mload, 0},
+	{"guest-get-disks", "{}", Mquery, QgaDisks},
+	{"guest-get-osinfo", "{}", Mquery, QgaOsinfo},
+	{"guest-get-host-name", "{}", Mquery, QgaHostname},
+	{"guest-get-time", "{}", Mquery, QgaTime},
+	{"guest-network-get-interfaces", "{}", Mquery, QgaInterfaces},
+	{"guest-get-vcpus", "{}", Mquery, QgaVcpus},
+	{"guest-get-timezone", "{}", Mquery, QgaTimezone},
+	{"guest-network-get-route", "{}", Mquery, QgaRoutes},
+	{"guest-file-open", "{\"path\":\"/fixture\"}", Mfile, QgaFileOpen},
+	{"guest-file-close", "{\"handle\":1}", Mfile, QgaFileClose},
+	{"guest-file-read", "{\"handle\":1}", Mfile, QgaFileRead},
+	{"guest-file-write", "{\"handle\":1,\"buf-b64\":\"AA==\"}", Mfile, QgaFileWrite},
+	{"guest-file-seek", "{\"handle\":1,\"offset\":0,\"whence\":0}", Mfile, QgaFileSeek},
+	{"guest-file-flush", "{\"handle\":1}", Mfile, QgaFileFlush},
+	{"guest-set-time", "{\"time\":42}", Mtime, 0},
+	{"guest-exec-status", "{\"pid\":1}", Mexec, QgaExecStatus},
+	{"guest-exec", "{\"path\":\"/bin/echo\"}", Mexec, QgaExec},
+	/* Last only in this test, so earlier calls exercise the active state. */
+	{"guest-shutdown", "{}", Mshutdown, QgaPowerdown},
+};
+typedef struct MatrixState MatrixState;
+struct MatrixState { int calls, backend, op; };
+/* The query API has no context argument. This test has one synchronous owner. */
+static MatrixState *matrixstate;
+static int matrixcount;
+
+static void
+mcheck(int ok, const char *message)
+{
+	matrixcount++;
+	if(!ok)
+		fail(message);
+}
+
+static int
+mreply(MatrixState *s, int backend, int op, Jbuf *b)
+{
+	s->calls++;
+	s->backend = backend;
+	s->op = op;
+	jbtext(b, "{}");
+	return 0;
+}
+
+static int mquery(int op, Jbuf *b) { return mreply(matrixstate, Mquery, op, b); }
+static int mload(void *s, Jbuf *b) { return mreply(s, Mload, 0, b); }
+static int
+mfile(void *s, int op, Jdoc *d, int a, Jbuf *b, const char **error)
+{
+	(void)d; (void)a; (void)error;
+	return mreply(s, Mfile, op, b);
+}
+static int
+mexec(void *s, int op, Jdoc *d, int a, Jbuf *b, const char **error)
+{
+	(void)d; (void)a; (void)error;
+	return mreply(s, Mexec, op, b);
+}
+static int
+mtime(void *context, int supplied, QgaInt64 time, const char **error)
+{
+	MatrixState *s;
+
+	(void)error;
+	mcheck(supplied == 1 && time == 42, "clock callback arguments");
+	s = context; s->calls++; s->backend = Mtime; s->op = 0;
+	return 0;
+}
+static int
+mshutdown(void *context, int op)
+{
+	MatrixState *s;
+
+	s = context; s->calls++; s->backend = Mshutdown; s->op = op;
+	return 0;
+}
+
+static void
+mparse(Sink *out, Jdoc *d, int delimited)
+{
+	mcheck(out->used > delimited &&
+		(!delimited || (uchar)out->text[0] == 255), "response framing");
+	mcheck(jparseresponse(d, out->text+delimited, out->used-delimited), "response JSON");
+}
+
+static int
+mmetadata(Jdoc *d, int mask)
+{
+	char version[64];
+	int r, a, i, t, hits, expected, total;
+	const MatrixCommand *c;
+
+	r = jmember(d, 0, "return");
+	if(r < 0 || d->token[r].type != Jobject || jmember(d, 0, "error") >= 0 ||
+	   jgetstring(d, jmember(d, r, "version"), version, sizeof version) < 1)
+		return 0;
+	a = jmember(d, r, "supported_commands");
+	if(a < 0 || d->token[a].type != Jarray)
+		return 0;
+	total = 0;
+	for(i = 0; i < (int)(sizeof matrixcommands/sizeof matrixcommands[0]); i++){
+		c = &matrixcommands[i];
+		expected = c->backend == 0 || (c->backend & mask) != 0;
+		total += expected;
+		hits = 0;
+		for(r = a+1; r < d->token[a].next; r = d->token[r].next){
+			if(!jmatch(d, jmember(d, r, "name"), c->name))
+				continue;
+			hits++;
+			t = jmember(d, r, "enabled");
+			if(t < 0 || d->token[t].type != Jtrue)
+				return 0;
+			t = jmember(d, r, "success-response");
+			if(t < 0 || d->token[t].type != (c->backend == Mshutdown ? Jfalse : Jtrue))
+				return 0;
+		}
+		if(hits != expected)
+			return 0;
+	}
+	return d->token[a].count == total;
+}
+
+static void
+mrequest(Qga *q, Sink *out, Jdoc *d, MatrixState *s, const MatrixCommand *c,
+	int mask, int shuttingdown)
+{
+	char text[256];
+	Jbuf b;
+	int before, enabled, blocked, e, t;
+
+	jbinit(&b, text, sizeof text);
+	jbtext(&b, "{\"execute\":"); jbquote(&b, c->name);
+	jbtext(&b, ",\"arguments\":"); jbtext(&b, c->arguments); jbchar(&b, '}');
+	mcheck(!b.failed, "matrix input bounds");
+	before = s->calls;
+	out->used = 0;
+	mcheck(qgafeed(q, (uchar*)text, b.used) == 0 && qgaend(q) == 0, "matrix dispatch");
+	enabled = c->backend == 0 || (c->backend & mask) != 0;
+	blocked = shuttingdown && (c->backend & (Mfile|Mtime|Mexec|Mshutdown)) != 0;
+	if(!enabled || blocked){
+		mparse(out, d, 0);
+		e = jmember(d, 0, "error");
+		mcheck(jmatch(d, jmember(d, e, "class"), enabled ? "GenericError" : "Unsupported"),
+			"availability precedes shutdown-state refusal");
+		mcheck(s->calls == before, "rejected commands never reach callbacks");
+		return;
+	}
+	mcheck(s->calls == before+(c->backend != 0), "exactly one selected callback");
+	if(c->backend != 0)
+		mcheck(s->backend == c->backend && s->op == c->op, "callback family and operation");
+	if(c->backend == Mshutdown){
+		mcheck(out->used == 0, "shutdown sends no success reply");
+		return;
+	}
+	mparse(out, d, strcmp(c->name, "guest-sync-delimited") == 0);
+	t = jmember(d, 0, "return");
+	mcheck(t >= 0 && jmember(d, 0, "error") < 0, "successful dispatch response");
+	if(strcmp(c->name, "guest-info") == 0)
+		mcheck(mmetadata(d, mask), "capability names, uniqueness, availability and reply policy");
+	if(strcmp(c->name, "guest-sync") == 0 || strcmp(c->name, "guest-sync-delimited") == 0)
+		mcheck(d->token[t].type == Jnumber && strcmp(d->token[t].value.s, "7") == 0,
+			"sync result instead of capabilities or ping");
+}
+
+static int
+matrixchecks(Sink *out, Jdoc *d)
+{
+	MatrixState s;
+	Qga *q;
+	int mask, i;
+
+	matrixcount = 0;
+	out->mode = 0;
+	out->step = 3;
+	for(mask = 0; mask < Mall; mask++){
+		memset(&s, 0, sizeof s);
+		matrixstate = &s;
+		q = qganew(capture, out);
+		mcheck(q != nil, "matrix allocation");
+		if(mask & Mquery) qgaqueries(q, mquery);
+		if(mask & Mload) qgaloadops(q, mload, &s);
+		if(mask & Mfile) qgafileops(q, mfile, &s);
+		if(mask & Mtime) qgasettime(q, mtime, &s);
+		if(mask & Mexec) qgaexecops(q, mexec, &s);
+		if(mask & Mshutdown) qgashutdown(q, mshutdown, &s);
+		for(i = 0; i < (int)(sizeof matrixcommands/sizeof matrixcommands[0]); i++)
+			mrequest(q, out, d, &s, &matrixcommands[i], mask, 0);
+		if(mask & Mshutdown)
+			for(i = 0; i < (int)(sizeof matrixcommands/sizeof matrixcommands[0]); i++)
+				mrequest(q, out, d, &s, &matrixcommands[i], mask, 1);
+		qgafree(q);
+	}
+	matrixstate = nil;
+	return matrixcount;
+}
+
+/* Reuse the same semantic inventory for the native smoke-test response.
+ * Empty/error/malformed output is a failure, not evidence of exclusion. */
+static int
+stdioinfo(Sink *out, Jdoc *d)
+{
+	long n;
+	int r, a, mask;
+
+	out->used = 0;
+	for(;;){
+		if(out->used == (int)sizeof out->text)
+			return 0;
+		n = read(0, out->text+out->used, sizeof out->text-out->used);
+		if(n < 0)
+			return 0;
+		if(n == 0)
+			break;
+		out->used += n;
+	}
+	if(!jparseresponse(d, out->text, out->used))
+		return 0;
+	r = jmember(d, 0, "return");
+	a = jmember(d, r, "supported_commands");
+	if(a < 0 || d->token[a].type != Jarray)
+		return 0;
+	mask = Mquery|Mfile;
+	for(r = a+1; r < d->token[a].next; r = d->token[r].next)
+		if(jmatch(d, jmember(d, r, "name"), "guest-get-load"))
+			mask |= Mload;
+	return mmetadata(d, mask);
+}
+
 static int
 extendedchecks(Sink *out, Jdoc *doc)
 {
@@ -234,9 +474,9 @@ extendedchecks(Sink *out, Jdoc *doc)
 }
 
 #ifdef QGA_HOST_TEST
-int main(void)
+int main(int argc, char **argv)
 #else
-void main(void)
+void main(int argc, char **argv)
 #endif
 {
 	Sink *out;
@@ -252,6 +492,20 @@ void main(void)
 	doc = malloc(sizeof *doc);
 	if(out == nil || doc == nil)
 		fail("allocation");
+	if(argc == 2 && strcmp(argv[1], "--stdio-info") == 0){
+		i = stdioinfo(out, doc);
+		free(doc);
+		free(out);
+		if(!i)
+			fail("invalid stdio capabilities");
+#ifdef QGA_HOST_TEST
+		return 0;
+#else
+		exits(nil);
+#endif
+	}
+	if(argc != 1)
+		fail("usage: qga9-test [--stdio-info]");
 	memset(out, 0, sizeof *out);
 	check(out, ping, "{\"return\":{}}\r\n");
 	check(out, "{\"execute\":\"guest-sync\",\"arguments\":{\"id\":9223372036854775807}}",
@@ -292,7 +546,7 @@ void main(void)
 	jbtext(&b, "1234");
 	if(!b.failed || b.used != 0)
 		fail("bounded output");
-	checks = 17 + extendedchecks(out, doc);
+	checks = 17 + extendedchecks(out, doc) + matrixchecks(out, doc);
 	free(doc);
 	free(out);
 #ifdef QGA_HOST_TEST

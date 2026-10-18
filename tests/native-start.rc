@@ -13,7 +13,7 @@ qga9_start_case=delayed
 chmod 755 $qga9_start_dir/bin/qga9 || exit permissions
 bind -b $qga9_start_dir/bin /bin/aux || exit bind
 {echo 'qga9_enabled=yes'; echo 'qga9_transport=stream';
- echo 'qga9_device=''#Y0/data'''; echo 'qga9_shutdown=no'} >$qga9_start_dir/config
+ echo 'qga9_device=''#Y0/data'''} >$qga9_start_dir/config
 fn test {
 	if(~ $#* 2 && ~ $1 -e && ~ $2 '#Y0/data'){
 		echo probe >>$qga9_start_log

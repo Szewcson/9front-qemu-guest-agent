@@ -49,7 +49,7 @@ Preserve the limits in [SECURITY](SECURITY.md) and [PROTOCOL](PROTOCOL.md).
 
 Installation must be explicit, reproducible and reversible. Preserve existing
 boot configuration and recovery access. Use one channel consumer. Shutdown is
-opt-in, and actual power tests require an approved or disposable guest.
+available on management channels; actual power tests require an approved or disposable guest.
 Filesystem freeze and automatic trim stay disabled. Their native prerequisite
 mechanisms are not planned. Live backups without quiescing do not gain an
 application-consistency guarantee; prefer a clean shutdown for that workflow.

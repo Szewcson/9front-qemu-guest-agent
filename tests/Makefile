@@ -91,7 +91,7 @@ test: all
 	$(OUT)/qga9-process-test
 	$(OUT)/qga9-storage-test
 	$(OUT)/qga9-base64-test
-	QGA_TEST_BINARY=$(OUT)/qga9-stream-test python3 -m unittest discover -s . -p 'test_*.py' -v
+	QGA_TEST_BINARY=$(OUT)/qga9-stream-test QGA_CORE_TEST_BINARY=$(OUT)/qga9-core-test python3 -m unittest discover -s . -p 'test_*.py' -v
 
 clang-test:
 	$(MAKE) JSON_ROOT='$(JSON_ROOT)' CC='$(CLANG)' OUT='$(OUT)/clang' test
@@ -110,7 +110,7 @@ sanitize:
 	ASAN_OPTIONS=detect_leaks=1 ../build/sanitize/qga9-process-test
 	ASAN_OPTIONS=detect_leaks=1 ../build/sanitize/qga9-storage-test
 	ASAN_OPTIONS=detect_leaks=1 ../build/sanitize/qga9-base64-test
-	QGA_TEST_BINARY=../build/sanitize/qga9-stream-test ASAN_OPTIONS=detect_leaks=1 python3 -m unittest discover -s . -p 'test_*.py' -v
+	QGA_TEST_BINARY=../build/sanitize/qga9-stream-test QGA_CORE_TEST_BINARY=../build/sanitize/qga9-core-test ASAN_OPTIONS=detect_leaks=1 python3 -m unittest discover -s . -p 'test_*.py' -v
 
 analyze: | $(OUT)
 	mkdir -p $(OUT)/analyze

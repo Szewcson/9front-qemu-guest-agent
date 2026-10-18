@@ -15,7 +15,6 @@ if(! test -r $qga9_config){
 }
 qga9_enabled=no
 qga9_device=()
-qga9_shutdown=no
 qga9_transport=uart
 . $qga9_config
 if(! ~ $#qga9_enabled 1 || ! ~ $qga9_enabled yes no){
@@ -24,8 +23,8 @@ if(! ~ $#qga9_enabled 1 || ! ~ $qga9_enabled yes no){
 }
 if(~ $qga9_enabled no)
 	exit ''
-if(! ~ $#qga9_device 1 || ! ~ $#qga9_shutdown 1 || ! ~ $qga9_shutdown yes no){
-	echo 'qga9: one verified device and qga9_shutdown=yes/no required' >[1=2]
+if(! ~ $#qga9_device 1){
+	echo 'qga9: one verified device required' >[1=2]
 	exit configuration
 }
 if(! ~ $#qga9_transport 1 || ! ~ $qga9_transport uart stream){
@@ -69,9 +68,6 @@ if not {
 		exit permissions
 	}
 }
-qga9_flags=()
-if(~ $qga9_shutdown yes)
-	qga9_flags=(-S)
 # -D forks after channel setup, using private groups and RFNOWAIT (no rc wait job).
 rfork ens
-exec /bin/aux/qga9 -D -t $qga9_transport -d $qga9_device $qga9_flags </dev/null >/dev/null >[2]'#c/cons'
+exec /bin/aux/qga9 -D -t $qga9_transport -d $qga9_device </dev/null >/dev/null >[2]'#c/cons'

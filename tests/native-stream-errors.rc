@@ -1,0 +1,42 @@
+#!/bin/rc
+# SPDX-License-Identifier: MIT
+# Exercise the real native smoke fixture with a broken stdio-only producer.
+# Management operations still use the actual agent on its private pipe.
+rfork ens
+qga9_real_binary=`{pwd}^/qga9
+qga9_error_dir=/tmp/qga9-stream-errors-$pid
+if(! test -x $qga9_real_binary || ! test -x ./qga9-test)
+	exit build
+if(! mkdir $qga9_error_dir)
+	exit directory
+{echo '#!/bin/rc'
+ echo 'if(~ $#* 1 && ~ $1 -s){'
+ echo ' switch($qga9_bad_stdio){'
+ echo ' case failed-empty'; echo '  exit synthetic'
+ echo ' case empty'; echo '  exit '''''
+ echo ' case invalid'; echo '  echo invalid-json'; echo '  exit '''''
+ echo ' case error'; echo '  echo ''{"error":{"class":"GenericError","desc":"synthetic"}}'''; echo '  exit '''''
+ echo ' case failed-valid'; echo '  $qga9_real_binary -s'; echo '  exit synthetic'
+ echo ' }'
+ echo ' exit unexpected'
+ echo '}'
+ echo 'exec $qga9_real_binary $*'} >$qga9_error_dir/qga9
+chmod 755 $qga9_error_dir/qga9 || exit permissions
+for(qga9_bad_stdio in failed-empty empty invalid error failed-valid){
+	rc tests/native-stream.rc $qga9_error_dir/qga9
+	qga9_error_result=$status
+	if(~ $qga9_error_result ''){
+		echo 'false native stdio success:' $qga9_bad_stdio >[1=2]
+		exit false-pass
+	}
+	switch($qga9_bad_stdio){
+	case failed-empty failed-valid
+		# Native rc quotes make wildcard characters literal in ~ patterns.
+		if(! ~ $qga9_error_result *stdio-execution) exit wrong-execution-failure
+	case empty invalid error
+		if(! ~ $qga9_error_result *stdio-metadata) exit wrong-metadata-failure
+	}
+}
+echo 'native stream errors: failed, empty, invalid, error and failed-valid stdio rejected'
+echo 'fixture directory retained:' $qga9_error_dir
+exit ''

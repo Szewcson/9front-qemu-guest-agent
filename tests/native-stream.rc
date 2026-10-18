@@ -1,12 +1,13 @@
 #!/bin/rc
 # SPDX-License-Identifier: MIT
-# Native duplex-stream smoke test; no UART, filesystem mutation or power API.
+# Private duplex-stream test; writes only its own fixtures, never a power API.
 rfork n
 qga9_test_binary=./qga9
 if(~ $#* 1)
 	qga9_test_binary=$1
-if(! ~ $#* 0 1 || ! test -x $qga9_test_binary){
+if(! ~ $#* 0 1 || ! test -x $qga9_test_binary || ! test -x ./qga9-test){
 	echo 'usage: rc tests/native-stream.rc [qga9-binary]' >[1=2]
+	echo 'build qga9 and qga9-test first' >[1=2]
 	exit usage
 }
 # Replace /mnt only in this test's private namespace; no directories are removed.
@@ -29,11 +30,33 @@ qga9_test_result=''
 		echo 'management stream did not advertise clock control' >[1=2]
 		qga9_test_result=metadata
 	}
+	if(! echo $qga9_test_reply | grep '"name":"guest-shutdown","enabled":true,"success-response":false' >/dev/null){
+		echo 'management stream did not advertise default shutdown' >[1=2]
+		qga9_test_result=shutdown
+	}
+	# Invalid modes exercise dispatch without invoking the real power API.
+	echo '{"execute":"guest-shutdown","arguments":{"mode":12}}' >[1=0]
+	qga9_test_reply=`{read | tr -d '\015'}
+	if(! ~ $qga9_test_reply '{"error":{"class":"GenericError","desc":"Invalid shutdown mode"}}')
+		qga9_test_result=shutdown-mode
 	# This PID belongs to the smoke-test child, not the installed agent.
 	echo exit >/proc/$qga9_test_pid/note
 	wait $qga9_test_pid
 }
+# A direct command preserves the producer's exit status. Do not accept an
+# empty/error reply merely because a grep cannot find a forbidden command.
+qga9_test_dir=/tmp/qga9-stream-test-$pid
+if(! mkdir $qga9_test_dir)
+	exit directory
+echo '{"execute":"guest-info"}' >$qga9_test_dir/request || exit request
+if(! $qga9_test_binary -s <$qga9_test_dir/request >$qga9_test_dir/reply)
+	qga9_test_result=stdio-execution
+if not {
+	if(! ./qga9-test --stdio-info <$qga9_test_dir/reply)
+		qga9_test_result=stdio-metadata
+}
 if(! ~ $qga9_test_result '')
 	exit $qga9_test_result
-echo 'native duplex stream: ping and management metadata passed'
+echo 'native duplex stream: ping, default shutdown metadata, invalid mode and stdio exclusion passed'
+echo 'fixture directory retained:' $qga9_test_dir
 exit ''

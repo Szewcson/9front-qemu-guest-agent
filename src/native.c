@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: MIT */
-/* Native data sources and a fixed-argv, explicitly enabled shutdown path. */
+/* Native data sources and the management channel's fixed-argv shutdown path. */
 #include "native.h"
 #include "guestinfo.h"
 #include <ip.h>

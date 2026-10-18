@@ -7,7 +7,7 @@ native management features and their reliability, not the complete cross-platfor
 command union. Native semantics are required for every advertised capability.
 
 The upstream cross-platform union has 44 commands. This revision implements 23
-(shutdown opt-in; load requires a running sampler), leaving 21 unsupported.
+(shutdown on management channels; load requires a running sampler), leaving 21 unsupported.
 All 21 are intentionally outside active scope, not unfinished requirements.
 On 2026-10-15 the operator chose to keep `guest-get-fsinfo` unsupported rather
 than add trusted filesystem-mapping configuration after the identity investigation.
@@ -32,7 +32,7 @@ authentication infrastructure and invented Linux interfaces are not planned.
 | --- | --- | --- |
 | Protocol (4) | `guest-sync`, `guest-sync-delimited`, `guest-ping`, `guest-info` | Implemented, bounded parser/stream tests |
 | Existing native queries (4) | `guest-get-osinfo`, `guest-get-host-name`, `guest-get-time`, `guest-network-get-interfaces` | Implemented; operator supplied host OS/network output |
-| Power (1) | `guest-shutdown` | Opt-in native powerdown/reboot; local filesystem halt and QMP guest-shutdown passed. Reboot/failure paths unverified; `halt` remains unsupported |
+| Power (1) | `guest-shutdown` | Native powerdown/reboot on management channels, without separate opt-in; local filesystem halt and QMP guest-shutdown passed. Reboot/failure paths unverified; `halt` remains unsupported |
 | First expansion (3) | `guest-get-vcpus`, `guest-get-timezone`, `guest-network-get-route` | Implemented; native tests and operator-supplied Proxmox results passed |
 | Guest files (6) | `guest-file-open`, `guest-file-close`, `guest-file-read`, `guest-file-write`, `guest-file-seek`, `guest-file-flush` | Implemented; native and operator-supplied PVE binary round-trips passed. 16 opaque handles, 4 KiB chunks, bounded canonical base64, read/update/truncate modes; append explicitly Unsupported. Flush is user-space buffering semantics, not stable-storage sync |
 | Clock mutation (1) | `guest-set-time` | Implemented on management channels; native system/UTC RTC readback and operator-supplied PVE current-time test passed. Eve permission preflight, 1970–2069 range, explicit partial failures. Supplied-time and RTC-derived synchronization also passed over local virtio with QEMU's emulated RTC; physical RTC/failure cases remain separate |

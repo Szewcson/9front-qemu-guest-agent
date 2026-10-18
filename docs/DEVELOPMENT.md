@@ -27,7 +27,7 @@ make -C tests sanitize
 make -C tests analyze
 ```
 
-Linux runs 12 C suites, a stream harness and 54 Python methods.
+Linux runs 12 C suites, a stream harness and 57 Python methods.
 GCC/Clang, libresolv and Python are host development dependencies; source
 preparation additionally uses curl, sha256sum and git. Preparation is explicit,
 refuses an existing directory and downloads only pinned official native inputs.
@@ -46,6 +46,16 @@ exercises stream framing and host-script/PVE API boundaries.
 Malformed UTF-8/JSON, exact integers/IDs, fragmentation/resync, short I/O,
 resource exhaustion, lifecycle cleanup and partial failures are covered.
 Mocks never perform real shutdown, clock mutation or PVE RPCs.
+The core suite covers all 64 combinations of query/load/file/clock/exec/power
+backends, checking capability metadata, callback family/operation, and allowed
+or refused commands after shutdown. These replace the source-format startup
+assertions. Three Python methods also run the core suite's `--stdio-info`
+validator on valid and invalid capability responses, including optional load,
+duplicate/unknown names and forbidden management commands.
+The native duplex-stream fixture checks default shutdown advertisement and
+invalid-mode rejection without invoking power operations. Its stdio check first
+requires the producer to exit successfully, then validates the complete response
+with `./qga9-test --stdio-info`; empty/error output cannot prove exclusion.
 High assertion counts include parameterized checks, not independent scenarios.
 
 If JSON::XS is installed, rerun host-script tests using its wire-type behavior:
@@ -94,7 +104,8 @@ Optional native fixtures have separate effects:
 
 | Check | Invocation | Effect |
 | --- | --- | --- |
-| Raw stream | `rc tests/native-stream.rc` | Private-pipe daemon test |
+| Raw stream | Build `qga9` and `qga9-test`, then `rc tests/native-stream.rc` | Private-pipe daemon test; retains only synthetic request/reply files in its exclusive `/tmp` fixture directory |
+| Stream failure checks | `rc tests/native-stream-errors.rc` | Repeats the private-pipe test with five stdio-only producer faults; requires the expected execution/metadata failure, including failure after a valid response; retains synthetic wrapper/request/reply files |
 | Files | `rc tests/native-files.rc` | Creates and retains a synthetic checkout file |
 | Processes | `mk qga9-native-process-test qga9-exec-fixture`, then `./qga9-native-process-test` | Starts synthetic children |
 | Exec stream | `rc tests/native-exec-stream.rc` | Private daemon/process responsiveness test |

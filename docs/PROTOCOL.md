@@ -35,14 +35,16 @@ Unknown top-level or implemented-command argument members are rejected.
 | `guest-set-time` | optional signed int64 nanosecond `time`; omitted means read RTC; returns `{}` | Native management channel, not stdio | yes |
 | `guest-exec` | required `path`, optional `arg`, `env`, `input-data`, `capture-output`; returns native `pid` | Native management channel, not stdio | yes |
 | `guest-exec-status` | required owned `pid`; running or final result; consumes final metadata | Native management channel, not stdio | yes |
-| `guest-shutdown` | optional `mode`: powerdown (default), reboot; halt unsupported | Explicit `-S` only | **no** |
+| `guest-shutdown` | optional `mode`: powerdown (default), reboot; halt unsupported | Native management channel, not stdio | **no** |
 
-With the load sampler running, `guest-info` lists twenty-two commands on native
-management channels, twenty-three with `-S`. Native stdio lists nineteen
+With the load sampler running, `guest-info` lists twenty-three commands on native
+management channels, without a separate shutdown option. Native stdio lists nineteen
 (no shutdown, clock setter or exec/status). If sampler startup fails, each count
 is one lower and load is not advertised. The minimal
 Linux stream harness registers no native callbacks and lists only four. All
 listed entries have `enabled: true`; only shutdown has `success-response: false`.
+Dispatch uses explicit command kinds, native operation IDs and response/lifecycle
+flags. Table position does not select a handler or its availability policy.
 Excluded commands are not advertised. The current source version is `qga9-0.6.1-dev`.
 The last verified Proxmox deployment is `0.6.0-dev`; real-PVE acceptance of the
 `0.6.1-dev` native-libjson migration remains pending. See [STATUS](STATUS.md) for
@@ -159,8 +161,8 @@ or trust guarantee; a guest can forge its own answers.
   they are not deduplicated. Snapshots are limited to 65536 bytes/256 routes,
   with malformed records, bad addresses or overflow failing the whole query.
 - Successful shutdown is asynchronous and has **no success response**. Advertise
-  `success-response: false` only when enabled. Without `-S`, shutdown returns
-  `Unsupported`. With `-S`, powerdown/reboot select fixed native argv; `halt`
+  `success-response: false` when the backend is registered, as it is by default
+  on management channels. Stdio has no shutdown backend. Powerdown/reboot select fixed native argv; `halt`
   remains `Unsupported`, invalid modes/arguments return `GenericError`.
   One successfully initiated operation is permitted per instance. Executor-fork
   success is not confirmation of flush completion or actual poweroff: later exec,

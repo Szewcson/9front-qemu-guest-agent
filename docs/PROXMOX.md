@@ -71,8 +71,8 @@ qm agent "$VMID" get-vcpus
 qm agent "$VMID" get-timezone
 ```
 
-Current source reports `qga9-0.6.1-dev`: 22 advertised management commands,
-23 with `-S`, when the load sampler starts. Sampler startup failure reduces
+Current source reports `qga9-0.6.1-dev`: 23 advertised management commands,
+including shutdown, when the load sampler starts. Sampler startup failure reduces
 each count by one. This native-libjson migration is not yet deployed or accepted
 on the real Proxmox transport. The last verified deployment is `0.6.0-dev`,
 which was built/tested natively and installed in the Proxmox guest on
@@ -190,8 +190,8 @@ service rollback. See the driver's
 
 ## Optional disruptive power test
 
-With explicit `-S` or `qga9_shutdown=yes`, on an approved/disposable guest,
-save work and arrange host recovery before testing:
+Shutdown is available whenever the management service runs. On an
+approved/disposable guest, save work and arrange host recovery before testing:
 
 ```sh
 qm shutdown "$VMID" --timeout 120
@@ -219,7 +219,7 @@ readiness, permissions and one owner before retrying startup.
 For UART, inspect `#t`, namespace binding, COM configuration and console conflicts.
 For framing, verify raw 8-bit data, no flow control or competing reader, and one
 leading 0xff for delimited sync. For IP/UI issues compare native status/errors.
-For shutdown inspect opt-in, console, filesystem channels and ACPI/`scram`.
+For shutdown inspect the console, filesystem channels and ACPI/`scram`.
 
 Rollback stops the identified service, restores verified guest kernel/config/
 helper and prior PVE agent settings, and uses a controlled full Stop/Start when

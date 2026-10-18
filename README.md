@@ -2,7 +2,7 @@
 
 `qga9` is an experimental native Plan 9 C implementation of the QEMU Guest Agent
 protocol for 9front amd64 and Proxmox VE. It implements 23 standard commands,
-including opt-in shutdown, using native 9front sources, tools and runtime.
+including management-channel shutdown, using native 9front sources, tools and runtime.
 
 This repository owns the userspace daemon, codecs, service startup and QGA tests.
 The separate [9front-virtio-serial repository](https://github.com/Szewcson/9front-virtio-serial)
@@ -18,11 +18,12 @@ The daemon uses either a verified ISA UART or an existing duplex raw stream.
 - Management-channel system/UTC RTC setting, restricted to 1970–2069.
 - Management-channel execution with literal argv, binary stdin, five capture
   modes, eight jobs/results, bounded output and one-shot reaping.
-- Optional `-S` shutdown through fixed native `fshalt` argv.
+- Management-channel shutdown through fixed native `fshalt` argv.
 - UART, raw-stream and stdio modes; optional `-D` detachment.
 - Bounded JSON, exact integers, UTF-8 validation and binary resynchronization.
 
-Shutdown defaults off; `halt` is unsupported. Stdio exposes file operations but
+Powerdown/reboot are available whenever a management channel runs; `halt` is
+unsupported. Stdio exposes file operations but
 cannot execute commands, set time or shut down. Append modes, filesystem
 freeze/thaw, trim and password/key mutation remain unsupported.
 `guest-file-flush` is not a stable-storage or backup-consistency guarantee.
@@ -40,7 +41,7 @@ explicitly run a guest shell through exec. Read [SECURITY](docs/SECURITY.md) and
 
 ## Evidence
 
-Independent Linux checks passed 12 C suites and 54 Python methods, ASan/UBSan
+Independent Linux checks passed 12 C suites and 57 Python methods, ASan/UBSan
 with leak checks, and GCC analyzer. Prior native userspace tests and real PVE
 queries, binary files, clock setting and execution passed. The prior verified VM
 cold-booted the separate virtio kernel and automatically started `0.5.1-dev`;
@@ -108,6 +109,8 @@ Verify the dedicated UART mapping before selecting a device:
 ```
 
 Replace `N` with the verified port, separate from a serial console.
+The former `-S` option is removed; update custom launch commands. The startup
+helper no longer uses `qga9_shutdown`: old entries, including `no`, are ignored.
 For an installed, unowned virtio endpoint:
 
 ```rc

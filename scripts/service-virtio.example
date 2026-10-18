@@ -3,4 +3,4 @@
 qga9_enabled=yes
 qga9_transport=stream
 qga9_device='#Y0/data'
-qga9_shutdown=yes
+# Powerdown/reboot are available whenever the management service runs.

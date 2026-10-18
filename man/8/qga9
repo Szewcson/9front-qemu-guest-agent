@@ -18,9 +18,6 @@ qga9, qga9-start \- QEMU guest management for 9front
 .I baud
 ]
 [
-.B -S
-]
-[
 .B -D
 ]
 .PP
@@ -61,10 +58,9 @@ other than standard input/output/error and the channel/control descriptors.
 Foreground agents also take a private namespace for file operations.
 Start services in a clean native namespace, not a desktop export namespace.
 .PP
-.B -S
-enables
-.BR guest-shutdown .
-The default is disabled. Supported modes are powerdown and reboot, using fixed
+.B guest-shutdown
+is available on every management channel without a separate enable option.
+Supported modes are powerdown and reboot, using fixed
 .B fshalt
 or
 .B fshalt -r
@@ -130,7 +126,8 @@ sources trusted rc configuration from
 or
 .BR /cfg/$sysname/qga9 .
 Required settings are qga9_enabled=yes, qga9_transport=uart or stream,
-and qga9_device. Optional qga9_shutdown is yes or no (default no).
+and qga9_device. Shutdown is always available while the management service runs.
+The former qga9_shutdown setting is ignored; the former -S option is removed.
 The helper uses the daemon's default UART control path and baud rate.
 It applies restrictive permissions to
 ordinary configured endpoints. Canonical #Y data paths keep fixed driver

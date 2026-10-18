@@ -29,27 +29,43 @@ struct Qga {
 };
 
 typedef struct Command Command;
+enum {
+	CmdSync, CmdSyncDelimited, CmdPing, CmdInfo,
+	CmdQuery, CmdLoad, CmdFile, CmdSettime, CmdExec, CmdShutdown,
+	CmdNoReply = 1,
+	CmdBlockShutdown = 2,
+};
 struct Command {
 	const char *name;
-	int query;                    /* >=0 query; -2 clock; -3/-4 exec/status; -1 other. */
-	int file;                     /* -1 except for a guest-file operation. */
+	int kind;
+	int op;
+	int flags;
 };
 
 static const Command commands[] = {
-	{"guest-sync", -1, -1}, {"guest-sync-delimited", -1, -1},
-	{"guest-ping", -1, -1}, {"guest-info", -1, -1},
-	{"guest-get-osinfo", QgaOsinfo, -1}, {"guest-get-host-name", QgaHostname, -1},
-	{"guest-get-time", QgaTime, -1}, {"guest-network-get-interfaces", QgaInterfaces, -1},
-	{"guest-shutdown", -1, -1},
-	{"guest-get-vcpus", QgaVcpus, -1}, {"guest-get-timezone", QgaTimezone, -1},
-	{"guest-network-get-route", QgaRoutes, -1},
-	{"guest-file-open", -1, QgaFileOpen}, {"guest-file-close", -1, QgaFileClose},
-	{"guest-file-read", -1, QgaFileRead}, {"guest-file-write", -1, QgaFileWrite},
-	{"guest-file-seek", -1, QgaFileSeek}, {"guest-file-flush", -1, QgaFileFlush},
-	{"guest-set-time", -2, -1},
-	{"guest-exec", -3, -1}, {"guest-exec-status", -4, -1},
-	{"guest-get-disks", QgaDisks, -1},
-	{"guest-get-load", QgaLoadAverage, -1},
+	{"guest-sync", CmdSync, 0, 0},
+	{"guest-sync-delimited", CmdSyncDelimited, 0, 0},
+	{"guest-ping", CmdPing, 0, 0},
+	{"guest-info", CmdInfo, 0, 0},
+	{"guest-get-osinfo", CmdQuery, QgaOsinfo, 0},
+	{"guest-get-host-name", CmdQuery, QgaHostname, 0},
+	{"guest-get-time", CmdQuery, QgaTime, 0},
+	{"guest-network-get-interfaces", CmdQuery, QgaInterfaces, 0},
+	{"guest-shutdown", CmdShutdown, 0, CmdNoReply},
+	{"guest-get-vcpus", CmdQuery, QgaVcpus, 0},
+	{"guest-get-timezone", CmdQuery, QgaTimezone, 0},
+	{"guest-network-get-route", CmdQuery, QgaRoutes, 0},
+	{"guest-file-open", CmdFile, QgaFileOpen, CmdBlockShutdown},
+	{"guest-file-close", CmdFile, QgaFileClose, CmdBlockShutdown},
+	{"guest-file-read", CmdFile, QgaFileRead, CmdBlockShutdown},
+	{"guest-file-write", CmdFile, QgaFileWrite, CmdBlockShutdown},
+	{"guest-file-seek", CmdFile, QgaFileSeek, CmdBlockShutdown},
+	{"guest-file-flush", CmdFile, QgaFileFlush, CmdBlockShutdown},
+	{"guest-set-time", CmdSettime, 0, CmdBlockShutdown},
+	{"guest-exec", CmdExec, QgaExec, CmdBlockShutdown},
+	{"guest-exec-status", CmdExec, QgaExecStatus, CmdBlockShutdown},
+	{"guest-get-disks", CmdQuery, QgaDisks, 0},
+	{"guest-get-load", CmdLoad, 0, 0},
 };
 
 static const char *const unsupported[] = {
@@ -131,14 +147,18 @@ qgasettime(Qga *q, QgaSettime settime, void *context)
 }
 
 static int
-available(Qga *q, int command)
+available(Qga *q, const Command *c)
 {
-	return !((commands[command].query == QgaLoadAverage ? q->loadquery == nil :
-		(commands[command].query >= 0 && q->query == nil)) ||
-		(commands[command].query == -2 && q->settime == nil) ||
-		(commands[command].query <= -3 && q->execop == nil) ||
-		(commands[command].file >= 0 && q->fileop == nil) ||
-		(command == 8 && q->shutdown == nil));
+	switch(c->kind){
+	case CmdSync: case CmdSyncDelimited: case CmdPing: case CmdInfo: return 1;
+	case CmdQuery: return q->query != nil;
+	case CmdLoad: return q->loadquery != nil;
+	case CmdFile: return q->fileop != nil;
+	case CmdSettime: return q->settime != nil;
+	case CmdExec: return q->execop != nil;
+	case CmdShutdown: return q->shutdown != nil;
+	}
+	return 0;
 }
 
 void
@@ -189,7 +209,8 @@ static int
 dispatch(Qga *q)
 {
 	Jdoc *d;
-	int id, execute, arguments, i, command, syncid, mode, argmode, first, reserved, result;
+	const Command *c;
+	int id, execute, arguments, i, syncid, mode, argmode, first, reserved, result;
 	const char *description;
 	QgaInt64 time;
 
@@ -206,23 +227,23 @@ dispatch(Qga *q)
 			return error(q, id, "GenericError", "Unexpected request member");
 	if(arguments >= 0 && d->token[arguments].type != Jobject)
 		return error(q, id, "GenericError", "arguments must be an object");
-	command = -1;
+	c = nil;
 	for(i = 0; i < (int)(sizeof commands / sizeof commands[0]); i++)
 		if(jmatch(d, execute, commands[i].name)){
-			command = i;
+			c = &commands[i];
 			break;
 		}
-	if(command < 0){
+	if(c == nil){
 		for(i = 0; i < (int)(sizeof unsupported / sizeof unsupported[0]); i++)
 			if(jmatch(d, execute, unsupported[i]))
 				return error(q, id, "Unsupported", "Command is not implemented or is excluded by policy");
 		return error(q, id, "CommandNotFound", "Unknown command");
 	}
-	if(!available(q, command))
+	if(!available(q, c))
 		return error(q, id, "Unsupported", "Command is not implemented or is excluded by policy");
-	if(q->shuttingdown && (commands[command].file >= 0 || commands[command].query <= -2))
+	if(q->shuttingdown && (c->flags & CmdBlockShutdown))
 		return error(q, id, "GenericError", "Shutdown is already in progress");
-	if(commands[command].query == -2){
+	if(c->kind == CmdSettime){
 		argmode = jmember(d, arguments, "time");
 		time = 0;
 		if((arguments >= 0 && d->token[arguments].count != (argmode >= 0 ? 1 : 0)) ||
@@ -236,7 +257,7 @@ dispatch(Qga *q)
 		jbtext(&q->buf, "{\"return\":{}");
 		return send(q, id);
 	}
-	if(commands[command].file >= 0 || commands[command].query <= -3){
+	if(c->kind == CmdFile || c->kind == CmdExec){
 		/* Reserve the exact transaction ID and framing before state-changing I/O. */
 		jbinit(&q->buf, q->output, sizeof q->output);
 		if(id >= 0)
@@ -247,19 +268,18 @@ dispatch(Qga *q)
 		jbinit(&q->buf, q->output, sizeof q->output-reserved);
 		jbtext(&q->buf, "{\"return\":");
 		description = "Native file operation failed";
-		if(commands[command].file >= 0)
-			result = q->fileop(q->filecontext, commands[command].file, d, arguments, &q->buf, &description);
+		if(c->kind == CmdFile)
+			result = q->fileop(q->filecontext, c->op, d, arguments, &q->buf, &description);
 		else{
 			description = "Native process operation failed";
-			result = q->execop(q->execcontext, commands[command].query == -3 ? QgaExec : QgaExecStatus,
-				d, arguments, &q->buf, &description);
+			result = q->execop(q->execcontext, c->op, d, arguments, &q->buf, &description);
 		}
 		if(result < 0 || q->buf.failed)
 			return error(q, id, result == -2 ? "Unsupported" : "GenericError", description);
 		q->buf.size = sizeof q->output;
 		return send(q, id);
 	}
-	if(command == 8){
+	if(c->kind == CmdShutdown){
 		argmode = jmember(d, arguments, "mode");
 		if(arguments >= 0 && d->token[arguments].count != (argmode >= 0 ? 1 : 0))
 			return error(q, id, "GenericError", "Unexpected shutdown argument");
@@ -280,7 +300,7 @@ dispatch(Qga *q)
 		return 0;                    /* QGA shutdown success has NO response. */
 	}
 	syncid = -1;
-	if(command < 2){
+	if(c->kind == CmdSync || c->kind == CmdSyncDelimited){
 		syncid = jmember(d, arguments, "id");
 		if(arguments < 0 || d->token[arguments].count != 1 || !jint64(d, syncid))
 			return error(q, id, "GenericError", "Sync requires exactly one signed 64-bit integer id");
@@ -288,7 +308,7 @@ dispatch(Qga *q)
 		return error(q, id, "GenericError", "Command takes no arguments");
 	/* Queries can fill the reply: reserve the escaped ID before native I/O too. */
 	reserved = 0;
-	if(commands[command].query >= 0){
+	if(c->kind == CmdQuery || c->kind == CmdLoad){
 		jbinit(&q->buf, q->output, sizeof q->output);
 		if(id >= 0)
 			jbvalue(&q->buf, d, id);
@@ -297,23 +317,23 @@ dispatch(Qga *q)
 		reserved = q->buf.used + (id >= 0 ? 6 : 0) + 3;
 	}
 	jbinit(&q->buf, q->output, sizeof q->output-reserved);
-	if(command == 1)
+	if(c->kind == CmdSyncDelimited)
 		jbchar(&q->buf, 0xFF);   /* Only a successful delimited sync is prefixed. */
 	jbtext(&q->buf, "{\"return\":");
-	if(command < 2)
+	if(c->kind == CmdSync || c->kind == CmdSyncDelimited)
 		jbvalue(&q->buf, d, syncid);
-	else if(command == 2)
+	else if(c->kind == CmdPing)
 		jbtext(&q->buf, "{}");
-	else if(commands[command].query >= 0){
-		result = commands[command].query == QgaLoadAverage ?
-			q->loadquery(q->loadcontext,&q->buf) : q->query(commands[command].query, &q->buf);
+	else if(c->kind == CmdQuery || c->kind == CmdLoad){
+		result = c->kind == CmdLoad ?
+			q->loadquery(q->loadcontext, &q->buf) : q->query(c->op, &q->buf);
 		if(result < 0 || q->buf.failed)
 			return error(q, id, "GenericError", "Cannot read or serialize native guest information");
-	}else{
+	}else if(c->kind == CmdInfo){
 		jbtext(&q->buf, "{\"version\":\"qga9-0.6.1-dev\",\"supported_commands\":[");
 		first = 1;
 		for(i = 0; i < (int)(sizeof commands / sizeof commands[0]); i++){
-			if(!available(q, i))
+			if(!available(q, &commands[i]))
 				continue;
 			if(!first)
 				jbchar(&q->buf, ',');
@@ -321,10 +341,11 @@ dispatch(Qga *q)
 			jbtext(&q->buf, "{\"name\":");
 			jbquote(&q->buf, commands[i].name);
 			jbtext(&q->buf, ",\"enabled\":true,\"success-response\":");
-			jbtext(&q->buf, i == 8 ? "false}" : "true}");
+			jbtext(&q->buf, (commands[i].flags & CmdNoReply) ? "false}" : "true}");
 		}
 		jbtext(&q->buf, "]}");
-	}
+	}else
+		return error(q, id, "GenericError", "Invalid command descriptor");
 	q->buf.size = sizeof q->output;
 	return send(q, id);
 }
